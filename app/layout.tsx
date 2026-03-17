@@ -5,6 +5,16 @@ import { Toaster } from "sonner";
 export const metadata: Metadata = {
   title: "Feed the Wolf",
   description: "Workout tracker for athletes and trainers",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "Feed the Wolf",
+    statusBarStyle: "black",
+  },
+  themeColor: "#000000",
+  icons: {
+    apple: "/icons/wolf-icon-192.svg",
+  },
 };
 
 export default function RootLayout({

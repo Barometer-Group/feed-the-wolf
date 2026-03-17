@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="192" height="192">
+  <rect width="200" height="200" fill="#000000"/>
+  <g fill="none" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 100 20 L 70 55 L 100 50 Z"/>
+    <path d="M 100 20 L 130 55 L 100 50 Z"/>
+    <path d="M 45 55 L 70 55 L 60 75 Z"/>
+    <path d="M 155 55 L 130 55 L 140 75 Z"/>
+    <path d="M 60 75 L 70 55 L 85 65 Z"/>
+    <path d="M 140 75 L 130 55 L 115 65 Z"/>
+    <path d="M 85 65 L 100 50 L 115 65 Z"/>
+    <path d="M 100 50 L 85 65 L 75 85 Z"/>
+    <path d="M 100 50 L 115 65 L 125 85 Z"/>
+    <path d="M 55 85 L 75 85 L 70 100 Z"/>
+    <path d="M 145 85 L 125 85 L 130 100 Z"/>
+    <path d="M 70 100 L 75 85 L 90 95 Z"/>
+    <path d="M 130 100 L 125 85 L 110 95 Z"/>
+    <path d="M 90 95 L 100 85 L 110 95 Z"/>
+    <path d="M 70 85 L 60 95 L 75 100 Z"/>
+    <path d="M 130 85 L 140 95 L 125 100 Z"/>
+    <path d="M 100 85 L 90 95 L 100 120 Z"/>
+    <path d="M 100 85 L 110 95 L 100 120 Z"/>
+    <path d="M 100 120 L 90 95 L 80 110 Z"/>
+    <path d="M 100 120 L 110 95 L 120 110 Z"/>
+    <path d="M 80 110 L 70 100 L 85 130 Z"/>
+    <path d="M 120 110 L 130 100 L 115 130 Z"/>
+    <path d="M 85 130 L 100 120 L 100 155 Z"/>
+    <path d="M 115 130 L 100 120 L 100 155 Z"/>
+    <path d="M 70 100 L 85 130 L 75 140 Z"/>
+    <path d="M 130 100 L 115 130 L 125 140 Z"/>
+    <path d="M 75 140 L 100 155 L 90 165 Z"/>
+    <path d="M 125 140 L 100 155 L 110 165 Z"/>
+  </g>
+</svg>
