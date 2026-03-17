@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "sonner";
 
@@ -11,10 +11,13 @@ export const metadata: Metadata = {
     title: "Feed the Wolf",
     statusBarStyle: "black",
   },
-  themeColor: "#000000",
   icons: {
     apple: "/icons/wolf-icon-192.svg",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#000000",
 };
 
 export default function RootLayout({
