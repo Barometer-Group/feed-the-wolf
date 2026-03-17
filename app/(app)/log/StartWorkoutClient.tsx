@@ -36,7 +36,12 @@ export function StartWorkoutClient({
         data: { user },
         error: authError,
       } = await supabase.auth.getUser();
+      console.log("[StartWorkout] auth.getUser() result:", {
+        user: user ? { id: user.id, email: user.email } : null,
+        authError: authError ? { message: authError.message, name: authError.name } : null,
+      });
       if (authError || !user) {
+        console.error("[StartWorkout] Auth failed:", authError);
         toast.error("Please sign in to start a workout");
         setLoading(false);
         return;
@@ -47,9 +52,27 @@ export function StartWorkoutClient({
         .select("id")
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("[StartWorkout] Supabase insert error:", {
+          message: error.message,
+          code: (error as { code?: string }).code,
+          details: (error as { details?: string }).details,
+          hint: (error as { hint?: string }).hint,
+          fullError: error,
+        });
+        throw error;
+      }
       if (data) router.push(`/log/${data.id}`);
     } catch (err) {
+      console.error("[StartWorkout] Caught error:", err);
+      if (err && typeof err === "object") {
+        const e = err as { message?: string; code?: string; details?: string };
+        console.error("[StartWorkout] Error details:", {
+          message: e.message,
+          code: e.code,
+          details: e.details,
+        });
+      }
       toast.error("Failed to start workout");
       setLoading(false);
     }
