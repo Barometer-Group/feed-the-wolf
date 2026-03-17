@@ -32,9 +32,18 @@ export function StartWorkoutClient({
     setLoading(true);
     try {
       const supabase = createClient();
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+      if (authError || !user) {
+        toast.error("Please sign in to start a workout");
+        setLoading(false);
+        return;
+      }
       const { data, error } = await supabase
         .from("workout_logs")
-        .insert({ athlete_id: athleteId })
+        .insert({ athlete_id: user.id })
         .select("id")
         .single();
 

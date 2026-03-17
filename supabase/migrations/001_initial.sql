@@ -308,7 +308,9 @@ create policy "Plan exercises follow plan access"
 
 -- workout_logs & exercise_logs
 create policy "Athletes can CRUD own workout logs"
-  on workout_logs for all using (athlete_id = auth.uid());
+  on workout_logs for all
+  using (athlete_id = auth.uid())
+  with check (athlete_id = auth.uid());
 
 create policy "Trainers can read logs of assigned athletes"
   on workout_logs for select using (
