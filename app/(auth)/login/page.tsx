@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { WolfLogo } from "@/components/shared/WolfLogo";
 import { toast } from "sonner";
 
 export default function LoginPage() {
@@ -82,12 +83,31 @@ export default function LoginPage() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Feed the Wolf</CardTitle>
-        <CardDescription>Sign in to your account</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+    <div className="fixed inset-0 flex min-h-screen flex-col items-center bg-black p-4 pt-10 overflow-auto">
+      <WolfLogo />
+      <p className="mt-10 text-center text-white text-2xl font-semibold tracking-[0.1em]">
+        Feed the Wolf
+      </p>
+      <div className="auth-form-fade w-full max-w-sm mt-8">
+        <style>{`
+          @keyframes authFormFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          .auth-form-fade {
+            opacity: 0;
+            animation: authFormFadeIn 0.4s ease-out 1.8s forwards;
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .auth-form-fade { animation: none; opacity: 1; }
+          }
+        `}</style>
+        <Card>
+          <CardHeader>
+            <CardTitle>Sign in</CardTitle>
+            <CardDescription>Sign in to your account</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
         <form onSubmit={handlePasswordLogin} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
@@ -152,5 +172,7 @@ export default function LoginPage() {
         </p>
       </CardContent>
     </Card>
+      </div>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const supabase = await createClient();
     const {
@@ -24,9 +24,12 @@ export async function POST() {
       );
     }
 
+    const body = await request.json().catch(() => ({}));
+    const planId = (body as { plan_id?: string }).plan_id ?? null;
+
     const { data, error } = await supabase
       .from("workout_logs")
-      .insert({ athlete_id: user.id })
+      .insert({ athlete_id: user.id, plan_id: planId || undefined })
       .select("id")
       .single();
 

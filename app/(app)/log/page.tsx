@@ -60,10 +60,41 @@ export default async function LogPage() {
     };
   });
 
+  const { data: assignedPlans } = await supabase
+    .from("workout_plans")
+    .select("id, name, scheduled_date")
+    .eq("athlete_id", user.id)
+    .order("scheduled_date", { ascending: true, nullsFirst: false });
+
+  const { data: planCounts } = assignedPlans?.length
+    ? await supabase
+        .from("workout_plan_exercises")
+        .select("plan_id")
+        .in("plan_id", (assignedPlans ?? []).map((p) => p.id))
+    : { data: [] };
+  const countByPlan = (planCounts ?? []).reduce(
+    (acc, row) => {
+      acc[row.plan_id] = (acc[row.plan_id] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
+
+  const assignedWithMeta = (assignedPlans ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    scheduled_date: (p as { scheduled_date: string | null }).scheduled_date,
+    exercise_count: countByPlan[p.id] ?? 0,
+  }));
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Log Workout</h1>
-      <StartWorkoutClient athleteId={user.id} recentWorkouts={recentWithMeta} />
+      <StartWorkoutClient
+        athleteId={user.id}
+        recentWorkouts={recentWithMeta}
+        assignedPlans={assignedWithMeta}
+      />
     </div>
   );
 }

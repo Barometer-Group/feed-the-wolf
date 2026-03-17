@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WolfLogo } from "@/components/shared/WolfLogo";
 import { toast } from "sonner";
 
 type RoleOption = "athlete" | "trainer";
@@ -72,12 +73,31 @@ export default function SignupPage() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Feed the Wolf</CardTitle>
-        <CardDescription>Create your account</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <div className="fixed inset-0 flex min-h-screen flex-col items-center bg-black p-4 pt-10 overflow-auto">
+      <WolfLogo />
+      <p className="mt-10 text-center text-white text-2xl font-semibold tracking-[0.1em]">
+        Feed the Wolf
+      </p>
+      <div className="auth-form-fade w-full max-w-sm mt-8">
+        <style>{`
+          @keyframes authFormFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          .auth-form-fade {
+            opacity: 0;
+            animation: authFormFadeIn 0.4s ease-out 1.8s forwards;
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .auth-form-fade { animation: none; opacity: 1; }
+          }
+        `}</style>
+        <Card>
+          <CardHeader>
+            <CardTitle>Create account</CardTitle>
+            <CardDescription>Sign up for Feed the Wolf</CardDescription>
+          </CardHeader>
+          <CardContent>
         <form onSubmit={handleSignup} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Name</Label>
@@ -137,5 +157,7 @@ export default function SignupPage() {
         </p>
       </CardContent>
     </Card>
+      </div>
+    </div>
   );
 }

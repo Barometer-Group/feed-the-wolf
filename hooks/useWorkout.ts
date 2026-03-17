@@ -8,9 +8,17 @@ type WorkoutLog = Database["public"]["Tables"]["workout_logs"]["Row"];
 type ExerciseLog = Database["public"]["Tables"]["exercise_logs"]["Row"];
 type Exercise = Database["public"]["Tables"]["exercises"]["Row"];
 
+export interface PrescribedValues {
+  sets: number | null;
+  reps: number | null;
+  weight_lbs: number | null;
+  duration_seconds: number | null;
+}
+
 export interface ExerciseInWorkout {
   exercise: Exercise;
   logs: ExerciseLog[];
+  prescribed?: PrescribedValues;
 }
 
 export function useWorkout(workoutId: string | null, athleteId: string) {
@@ -42,30 +50,67 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
       .order("exercise_id")
       .order("set_number");
 
-    if (!logs?.length) {
-      setExercises([]);
-      setLoading(false);
-      return;
+    const planId = (w as WorkoutLog).plan_id;
+    let result: ExerciseInWorkout[] = [];
+
+    if (logs?.length) {
+      const exerciseIds = [...new Set((logs as ExerciseLog[]).map((l) => l.exercise_id))];
+      const { data: exData } = await supabase
+        .from("exercises")
+        .select("*")
+        .in("id", exerciseIds);
+      const exMap = new Map((exData ?? []).map((e) => [e.id, e as Exercise]));
+      const byExercise = new Map<string, ExerciseLog[]>();
+      for (const log of logs as ExerciseLog[]) {
+        if (!byExercise.has(log.exercise_id)) byExercise.set(log.exercise_id, []);
+        byExercise.get(log.exercise_id)!.push(log);
+      }
+      for (const eid of exerciseIds) {
+        const ex = exMap.get(eid);
+        if (ex) result.push({ exercise: ex, logs: byExercise.get(eid) ?? [] });
+      }
     }
 
-    const exerciseIds = [...new Set((logs as ExerciseLog[]).map((l) => l.exercise_id))];
-    const { data: exData } = await supabase
-      .from("exercises")
-      .select("*")
-      .in("id", exerciseIds);
+    if (planId) {
+      const { data: planEx } = await supabase
+        .from("workout_plan_exercises")
+        .select("exercise_id, prescribed_sets, prescribed_reps, prescribed_weight_lbs, prescribed_duration_seconds")
+        .eq("plan_id", planId)
+        .order("order_index");
+      const prescribedByEx = new Map(
+        (planEx ?? []).map((pe) => [
+          (pe as { exercise_id: string }).exercise_id,
+          {
+            sets: (pe as { prescribed_sets: number | null }).prescribed_sets,
+            reps: (pe as { prescribed_reps: number | null }).prescribed_reps,
+            weight_lbs: (pe as { prescribed_weight_lbs: string | null }).prescribed_weight_lbs
+              ? Number((pe as { prescribed_weight_lbs: string }).prescribed_weight_lbs)
+              : null,
+            duration_seconds: (pe as { prescribed_duration_seconds: number | null }).prescribed_duration_seconds,
+          },
+        ])
+      );
+      for (const e of result) {
+        const p = prescribedByEx.get(e.exercise.id);
+        if (p) e.prescribed = p;
+      }
 
-    const exMap = new Map((exData ?? []).map((e) => [e.id, e as Exercise]));
-    const byExercise = new Map<string, ExerciseLog[]>();
-    for (const log of logs as ExerciseLog[]) {
-      if (!byExercise.has(log.exercise_id)) byExercise.set(log.exercise_id, []);
-      byExercise.get(log.exercise_id)!.push(log);
+      const loggedIds = new Set(result.map((e) => e.exercise.id));
+      const planExIds = (planEx ?? []).map((pe) => (pe as { exercise_id: string }).exercise_id);
+      const { data: planExData } = planExIds.length
+        ? await supabase.from("exercises").select("*").in("id", planExIds)
+        : { data: [] };
+      const planExMap = new Map((planExData ?? []).map((e) => [e.id, e as Exercise]));
+      for (const eid of planExIds) {
+        if (loggedIds.has(eid)) continue;
+        const ex = planExMap.get(eid);
+        if (ex) {
+          const p = prescribedByEx.get(eid);
+          result.push({ exercise: ex, logs: [], prescribed: p });
+        }
+      }
     }
 
-    const result: ExerciseInWorkout[] = [];
-    for (const eid of exerciseIds) {
-      const ex = exMap.get(eid);
-      if (ex) result.push({ exercise: ex, logs: byExercise.get(eid) ?? [] });
-    }
     setExercises(result);
     setLoading(false);
   }, [workoutId, supabase]);

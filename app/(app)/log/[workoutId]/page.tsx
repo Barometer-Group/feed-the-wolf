@@ -270,16 +270,31 @@ export default function ActiveWorkoutPage() {
             <Card key={exercise.id}>
               <CardContent className="pt-4">
                 <h3 className="mb-2 font-semibold">{exercise.name}</h3>
-                {prev && (
+                {(prev || exercisesInWorkout.find((x) => x.exercise.id === exercise.id)?.prescribed) && (
                   <p className="mb-2 text-xs text-muted-foreground">
-                    Last time:{" "}
                     {[
-                      prev.reps != null && `${prev.reps} reps`,
-                      prev.weightLbs != null && `${prev.weightLbs} lbs`,
-                      prev.durationSeconds != null && `${prev.durationSeconds}s`,
+                      (() => {
+                        const p = exercisesInWorkout.find((x) => x.exercise.id === exercise.id)?.prescribed;
+                        if (!p) return null;
+                        const parts: string[] = [];
+                        if (p.sets != null && p.reps != null) parts.push(`${p.sets}×${p.reps}`);
+                        else if (p.reps != null) parts.push(`${p.reps} reps`);
+                        if (p.weight_lbs != null) parts.push(`@ ${p.weight_lbs} lbs`);
+                        if (p.duration_seconds != null) parts.push(`${p.duration_seconds}s`);
+                        return parts.length ? `Prescribed: ${parts.join(" ")}` : null;
+                      })(),
+                      prev
+                        ? `Last time: ${[
+                            prev.reps != null && `${prev.reps} reps`,
+                            prev.weightLbs != null && `${prev.weightLbs} lbs`,
+                            prev.durationSeconds != null && `${prev.durationSeconds}s`,
+                          ]
+                            .filter(Boolean)
+                            .join(", ")}`
+                        : null,
                     ]
                       .filter(Boolean)
-                      .join(", ")}
+                      .join(" · ")}
                   </p>
                 )}
                 <div className="overflow-x-auto">
