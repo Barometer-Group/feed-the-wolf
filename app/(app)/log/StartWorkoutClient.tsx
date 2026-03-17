@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dumbbell, Calendar } from "lucide-react";
 import { toast } from "sonner";
@@ -31,48 +30,24 @@ export function StartWorkoutClient({
   const handleStartAdHoc = async () => {
     setLoading(true);
     try {
-      const supabase = createClient();
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-      console.log("[StartWorkout] auth.getUser() result:", {
-        user: user ? { id: user.id, email: user.email } : null,
-        authError: authError ? { message: authError.message, name: authError.name } : null,
-      });
-      if (authError || !user) {
-        console.error("[StartWorkout] Auth failed:", authError);
-        toast.error("Please sign in to start a workout");
+      const res = await fetch("/api/workouts", { method: "POST" });
+      const body = await res.json();
+
+      if (!res.ok) {
+        console.error("[StartWorkout] API error:", {
+          status: res.status,
+          code: body.code,
+          message: body.message,
+          details: body.details,
+        });
+        toast.error(body.message ?? "Failed to start workout");
         setLoading(false);
         return;
       }
-      const { data, error } = await supabase
-        .from("workout_logs")
-        .insert({ athlete_id: user.id })
-        .select("id")
-        .single();
 
-      if (error) {
-        console.error("[StartWorkout] Supabase insert error:", {
-          message: error.message,
-          code: (error as { code?: string }).code,
-          details: (error as { details?: string }).details,
-          hint: (error as { hint?: string }).hint,
-          fullError: error,
-        });
-        throw error;
-      }
-      if (data) router.push(`/log/${data.id}`);
+      if (body.id) router.push(`/log/${body.id}`);
     } catch (err) {
-      console.error("[StartWorkout] Caught error:", err);
-      if (err && typeof err === "object") {
-        const e = err as { message?: string; code?: string; details?: string };
-        console.error("[StartWorkout] Error details:", {
-          message: e.message,
-          code: e.code,
-          details: e.details,
-        });
-      }
+      console.error("[StartWorkout] Fetch error:", err);
       toast.error("Failed to start workout");
       setLoading(false);
     }

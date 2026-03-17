@@ -220,6 +220,16 @@ alter table achievements enable row level security;
 alter table points_ledger enable row level security;
 alter table notifications enable row level security;
 
+-- SECURITY DEFINER function to avoid RLS recursion when checking role
+create or replace function public.get_my_role()
+returns text
+language sql
+security definer
+set search_path = public
+as $$
+  select role from profiles where id = auth.uid();
+$$;
+
 -- profiles policies
 create policy "Users can read own profile"
   on profiles for select using (auth.uid() = id);
@@ -228,14 +238,10 @@ create policy "Users can update own profile"
   on profiles for update using (auth.uid() = id);
 
 create policy "Admins can read all profiles"
-  on profiles for select using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on profiles for select using (get_my_role() = 'admin');
 
 create policy "Admins can update all profiles"
-  on profiles for update using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on profiles for update using (get_my_role() = 'admin');
 
 create policy "Trainers can read athlete profiles"
   on profiles for select using (
@@ -247,9 +253,7 @@ create policy "Trainers can read athlete profiles"
 
 -- trainer_athletes policies (admin only for management)
 create policy "Admins can manage trainer_athletes"
-  on trainer_athletes for all using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on trainer_athletes for all using (get_my_role() = 'admin');
 
 create policy "Trainers can read own assignments"
   on trainer_athletes for select using (trainer_id = auth.uid());
@@ -262,9 +266,7 @@ create policy "Anyone can read exercises"
   on exercises for select using (true);
 
 create policy "Admins can manage exercises"
-  on exercises for all using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on exercises for all using (get_my_role() = 'admin');
 
 -- workout_plans & workout_plan_exercises
 create policy "Users can CRUD plans they created"
@@ -285,9 +287,7 @@ create policy "Athletes can read plans assigned to them"
   on workout_plans for select using (athlete_id = auth.uid());
 
 create policy "Admins can CRUD all plans"
-  on workout_plans for all using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on workout_plans for all using (get_my_role() = 'admin');
 
 create policy "Plan exercises follow plan access"
   on workout_plan_exercises for all using (
@@ -301,7 +301,7 @@ create policy "Plan exercises follow plan access"
           select 1 from trainer_athletes ta
           where ta.trainer_id = auth.uid() and ta.athlete_id = p.athlete_id
         )
-        or exists (select 1 from profiles where id = auth.uid() and role = 'admin')
+        or get_my_role() = 'admin'
       )
     )
   );
@@ -321,9 +321,7 @@ create policy "Trainers can read logs of assigned athletes"
   );
 
 create policy "Admins can read all workout logs"
-  on workout_logs for select using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on workout_logs for select using (get_my_role() = 'admin');
 
 create policy "Athletes can CRUD own exercise logs"
   on exercise_logs for all using (
@@ -343,9 +341,7 @@ create policy "Trainers can read athlete exercise logs"
   );
 
 create policy "Admins can read all exercise logs"
-  on exercise_logs for select using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on exercise_logs for select using (get_my_role() = 'admin');
 
 -- media_uploads
 create policy "Uploaders can CRUD own media"
@@ -368,9 +364,7 @@ create policy "Trainers can update feedback on athlete media"
   );
 
 create policy "Admins can read all media"
-  on media_uploads for select using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on media_uploads for select using (get_my_role() = 'admin');
 
 -- achievements & points_ledger (read only for users, inserts via service role)
 create policy "Athletes can read own achievements"
@@ -385,9 +379,7 @@ create policy "Trainers can read athlete achievements"
   );
 
 create policy "Admins can read all achievements"
-  on achievements for select using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on achievements for select using (get_my_role() = 'admin');
 
 create policy "Athletes can read own points"
   on points_ledger for select using (athlete_id = auth.uid());
@@ -401,9 +393,7 @@ create policy "Trainers can read athlete points"
   );
 
 create policy "Admins can read all points"
-  on points_ledger for select using (
-    exists (select 1 from profiles where id = auth.uid() and role = 'admin')
-  );
+  on points_ledger for select using (get_my_role() = 'admin');
 
 -- notifications
 create policy "Users can read own notifications"
