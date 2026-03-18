@@ -1,14 +1,5 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ProgressDashboard } from "./ProgressDashboard";
 
 export default function ProgressPage() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Progress</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-muted-foreground">Coming soon</p>
-      </CardContent>
-    </Card>
-  );
+  return <ProgressDashboard />;
 }
