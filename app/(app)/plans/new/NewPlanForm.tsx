@@ -25,15 +25,20 @@ type Exercise = Database["public"]["Tables"]["exercises"]["Row"];
 interface NewPlanFormProps {
   athletes: { id: string; full_name: string }[];
   exercises: Exercise[];
+  initialAthleteId?: string;
 }
 
-export function NewPlanForm({ athletes, exercises }: NewPlanFormProps) {
+export function NewPlanForm({
+  athletes,
+  exercises,
+  initialAthleteId,
+}: NewPlanFormProps) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [scheduledDate, setScheduledDate] = useState("");
   const [isTemplate, setIsTemplate] = useState(false);
-  const [athleteId, setAthleteId] = useState<string>("");
+  const [athleteId, setAthleteId] = useState<string>(initialAthleteId ?? "");
   const [planExercises, setPlanExercises] = useState<PlanExerciseInput[]>([]);
   const [showExerciseSearch, setShowExerciseSearch] = useState(false);
   const [saving, setSaving] = useState(false);

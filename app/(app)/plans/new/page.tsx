@@ -2,7 +2,12 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { NewPlanForm } from "./NewPlanForm";
 
-export default async function NewPlanPage() {
+export default async function NewPlanPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ athlete?: string }>;
+}) {
+  const { athlete: athleteParam } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -44,6 +49,7 @@ export default async function NewPlanPage() {
       <NewPlanForm
         athletes={athletes}
         exercises={exercises ?? []}
+        initialAthleteId={athleteParam}
       />
     </div>
   );

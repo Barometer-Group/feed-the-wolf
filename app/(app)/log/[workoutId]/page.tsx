@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -19,6 +19,8 @@ import { Plus, Check, Video } from "lucide-react";
 import { MediaUpload } from "@/components/media/MediaUpload";
 import type { MediaListItem } from "@/lib/mediaTypes";
 import { toast } from "sonner";
+import { showPRToast } from "@/components/gamification/PRToast";
+import { showBadgeToast } from "@/components/gamification/BadgeToast";
 import { useWorkout } from "@/hooks/useWorkout";
 import { ExerciseSearchSheet } from "@/components/workout/ExerciseSearchSheet";
 import { ExerciseSetRow } from "@/components/workout/ExerciseSet";
@@ -48,6 +50,7 @@ export default function ActiveWorkoutPage() {
     Record<string, { reps?: number; weightLbs?: number; durationSeconds?: number }>
   >({});
   const [workoutMedia, setWorkoutMedia] = useState<MediaListItem[]>([]);
+  const prToastKeysRef = useRef<Set<string>>(new Set());
 
   const {
     workout,
@@ -153,7 +156,16 @@ export default function ActiveWorkoutPage() {
       },
       via: "manual" | "voice"
     ) => {
-      await addSet(exerciseId, payload, via);
+      const pr = await addSet(exerciseId, payload, via);
+      if (pr?.isPR && pr.prType) {
+        prToastKeysRef.current.add(`${exerciseId}-${pr.prType}`);
+        showPRToast({
+          exerciseName: pr.exerciseName,
+          prType: pr.prType,
+          weightLbs: pr.weightLbs,
+          reps: pr.reps,
+        });
+      }
       setAddingSetFor(null);
       setShowRestTimer(true);
     },
@@ -167,8 +179,27 @@ export default function ActiveWorkoutPage() {
 
   const handleSaveAndFinish = useCallback(
     async (perceivedEffort: number | null, overallNotes: string | null) => {
-      await completeWorkout(perceivedEffort, overallNotes);
-      router.push("/log");
+      try {
+        const result = await completeWorkout(perceivedEffort, overallNotes);
+        for (const ev of result.prEvents) {
+          const k = `${ev.exerciseId}-${ev.prType}`;
+          if (prToastKeysRef.current.has(k)) continue;
+          prToastKeysRef.current.add(k);
+          showPRToast({
+            exerciseName: ev.exerciseName,
+            prType: ev.prType,
+            weightLbs: ev.prType === "weight" ? ev.value : 0,
+            reps: ev.prType === "reps" ? ev.value : 0,
+          });
+        }
+        for (const b of result.newBadges) {
+          showBadgeToast(b);
+        }
+        router.push("/log");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not save workout");
+      }
     },
     [completeWorkout, router]
   );

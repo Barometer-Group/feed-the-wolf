@@ -16,6 +16,7 @@ export type Database = {
           avatar_url: string | null;
           role: "admin" | "trainer" | "athlete";
           leaderboard_visible: boolean;
+          total_points: number;
           created_at: string;
         };
         Insert: {
@@ -24,6 +25,7 @@ export type Database = {
           avatar_url?: string | null;
           role?: "admin" | "trainer" | "athlete";
           leaderboard_visible?: boolean;
+          total_points?: number;
           created_at?: string;
         };
         Update: {
@@ -32,6 +34,7 @@ export type Database = {
           avatar_url?: string | null;
           role?: "admin" | "trainer" | "athlete";
           leaderboard_visible?: boolean;
+          total_points?: number;
           created_at?: string;
         };
       };

@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import type { MediaListItem } from "@/lib/mediaTypes";
+import { awardPoints } from "@/lib/gamification/awardPoints";
+import { checkAndAwardAchievements } from "@/lib/gamification/checkAchievements";
 
 const BUCKET = "workout-media";
 const SIGNED_TTL = 3600;
@@ -259,7 +261,15 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ id: (inserted as { id: string }).id });
+    const mid = (inserted as { id: string }).id;
+    try {
+      await awardPoints(supabase, user.id, 2, `media_upload:${mid}`);
+      await checkAndAwardAchievements(supabase, user.id);
+    } catch {
+      /* points non-fatal */
+    }
+
+    return NextResponse.json({ id: mid });
   } catch {
     return NextResponse.json({ error: "Failed to save media" }, { status: 500 });
   }

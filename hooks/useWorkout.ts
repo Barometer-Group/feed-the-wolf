@@ -21,6 +21,24 @@ export interface ExerciseInWorkout {
   prescribed?: PrescribedValues;
 }
 
+export interface SetSavePrHint {
+  isPR: boolean;
+  prType: "weight" | "reps" | null;
+  exerciseName: string;
+  weightLbs: number;
+  reps: number;
+}
+
+export interface CompleteWorkoutResult {
+  prEvents: Array<{
+    exerciseId: string;
+    exerciseName: string;
+    prType: "weight" | "reps";
+    value: number;
+  }>;
+  newBadges: Array<{ type: string; title: string; description: string }>;
+}
+
 export function useWorkout(workoutId: string | null, athleteId: string) {
   const [workout, setWorkout] = useState<WorkoutLog | null>(null);
   const [exercises, setExercises] = useState<ExerciseInWorkout[]>([]);
@@ -86,13 +104,13 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
             prescribed_weight_lbs: number | null;
             prescribed_duration_seconds: number | null;
           };
-          const w = row.prescribed_weight_lbs;
+          const wt = row.prescribed_weight_lbs;
           return [
             row.exercise_id,
             {
               sets: row.prescribed_sets,
               reps: row.prescribed_reps,
-              weight_lbs: w != null ? Number(w) : null,
+              weight_lbs: wt != null ? Number(wt) : null,
               duration_seconds: row.prescribed_duration_seconds,
             },
           ] as const;
@@ -159,41 +177,113 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
         notes: string | null;
       },
       loggedVia: "manual" | "voice"
-    ) => {
-      if (!workoutId) return;
+    ): Promise<SetSavePrHint | null> => {
+      if (!workoutId) return null;
       const entry = exercises.find((e) => e.exercise.id === exerciseId);
       const nextSetNumber = (entry?.logs.length ?? 0) + 1;
+      const exerciseName = entry?.exercise.name ?? "Exercise";
 
-      const { error } = await supabase.from("exercise_logs").insert({
-        workout_log_id: workoutId,
-        exercise_id: exerciseId,
-        set_number: nextSetNumber,
-        reps: payload.reps,
-        weight_lbs: payload.weightLbs,
-        duration_seconds: payload.durationSeconds,
-        distance_meters: payload.distanceMeters,
-        notes: payload.notes,
-        logged_via: loggedVia,
-      });
+      const { data: inserted, error } = await supabase
+        .from("exercise_logs")
+        .insert({
+          workout_log_id: workoutId,
+          exercise_id: exerciseId,
+          set_number: nextSetNumber,
+          reps: payload.reps,
+          weight_lbs: payload.weightLbs,
+          duration_seconds: payload.durationSeconds,
+          distance_meters: payload.distanceMeters,
+          notes: payload.notes,
+          logged_via: loggedVia,
+        })
+        .select("id")
+        .single();
 
-      if (!error) await fetchWorkout();
+      if (error || !inserted) {
+        await fetchWorkout();
+        return null;
+      }
+
+      const logId = (inserted as { id: string }).id;
+
+      if (loggedVia === "voice") {
+        try {
+          await fetch(`/api/workouts/${workoutId}/exercise-logs`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ exerciseLogId: logId }),
+          });
+        } catch {
+          /* non-fatal */
+        }
+      }
+
+      let prHint: SetSavePrHint | null = null;
+      try {
+        const prRes = await fetch("/api/progress/prs/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            exerciseId,
+            weightLbs: payload.weightLbs,
+            reps: payload.reps,
+            workoutLogId: workoutId,
+            exerciseLogId: logId,
+          }),
+        });
+        const pr = (await prRes.json()) as {
+          isPR?: boolean;
+          prType?: "weight" | "reps" | null;
+        };
+        if (pr.isPR) {
+          prHint = {
+            isPR: true,
+            prType: pr.prType ?? null,
+            exerciseName,
+            weightLbs: payload.weightLbs ?? 0,
+            reps: payload.reps ?? 0,
+          };
+        }
+      } catch {
+        /* ignore */
+      }
+
+      await fetchWorkout();
+      return prHint;
     },
     [workoutId, exercises, supabase, fetchWorkout]
   );
 
   const completeWorkout = useCallback(
-    async (perceivedEffort: number | null, overallNotes: string | null) => {
-      if (!workoutId) return;
-      await supabase
-        .from("workout_logs")
-        .update({
-          completed_at: new Date().toISOString(),
+    async (
+      perceivedEffort: number | null,
+      overallNotes: string | null
+    ): Promise<CompleteWorkoutResult> => {
+      if (!workoutId) {
+        return { prEvents: [], newBadges: [] };
+      }
+      const res = await fetch(`/api/workouts/${workoutId}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           perceived_effort: perceivedEffort,
           overall_notes: overallNotes,
-        })
-        .eq("id", workoutId);
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        prEvents?: CompleteWorkoutResult["prEvents"];
+        newBadges?: CompleteWorkoutResult["newBadges"];
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to complete workout");
+      }
+      return {
+        prEvents: data.prEvents ?? [],
+        newBadges: data.newBadges ?? [],
+      };
     },
-    [workoutId, supabase]
+    [workoutId]
   );
 
   return {
