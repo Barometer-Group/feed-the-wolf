@@ -78,17 +78,25 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
         .eq("plan_id", planId)
         .order("order_index");
       const prescribedByEx = new Map(
-        (planEx ?? []).map((pe) => [
-          (pe as { exercise_id: string }).exercise_id,
-          {
-            sets: (pe as { prescribed_sets: number | null }).prescribed_sets,
-            reps: (pe as { prescribed_reps: number | null }).prescribed_reps,
-            weight_lbs: (pe as { prescribed_weight_lbs: string | null }).prescribed_weight_lbs
-              ? Number((pe as { prescribed_weight_lbs: string }).prescribed_weight_lbs)
-              : null,
-            duration_seconds: (pe as { prescribed_duration_seconds: number | null }).prescribed_duration_seconds,
-          },
-        ])
+        (planEx ?? []).map((pe) => {
+          const row = pe as {
+            exercise_id: string;
+            prescribed_sets: number | null;
+            prescribed_reps: number | null;
+            prescribed_weight_lbs: number | null;
+            prescribed_duration_seconds: number | null;
+          };
+          const w = row.prescribed_weight_lbs;
+          return [
+            row.exercise_id,
+            {
+              sets: row.prescribed_sets,
+              reps: row.prescribed_reps,
+              weight_lbs: w != null ? Number(w) : null,
+              duration_seconds: row.prescribed_duration_seconds,
+            },
+          ] as const;
+        })
       );
       for (const e of result) {
         const p = prescribedByEx.get(e.exercise.id);
@@ -109,6 +117,17 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
           result.push({ exercise: ex, logs: [], prescribed: p });
         }
       }
+
+      const byId = new Map(result.map((e) => [e.exercise.id, e]));
+      const ordered: ExerciseInWorkout[] = [];
+      for (const eid of planExIds) {
+        const e = byId.get(eid);
+        if (e) ordered.push(e);
+      }
+      for (const e of result) {
+        if (!planExIds.includes(e.exercise.id)) ordered.push(e);
+      }
+      result = ordered;
     }
 
     setExercises(result);

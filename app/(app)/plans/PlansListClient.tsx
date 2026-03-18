@@ -59,13 +59,22 @@ export function PlansListClient({ plans, currentUserId }: PlansListClientProps) 
       </div>
 
       {displayPlans.length === 0 ? (
-        <p className="text-muted-foreground">No plans yet — create your first one</p>
+        <p className="text-muted-foreground">
+          {tab === "assigned"
+            ? "No trainer-assigned plans yet"
+            : "No plans yet — create your first one"}
+        </p>
       ) : (
         <ul className="space-y-2">
           {displayPlans.map((plan) => (
             <li key={plan.id}>
               <PlanCard
                 plan={plan}
+                showAthleteName={
+                  tab === "my" &&
+                  !!plan.athlete_id &&
+                  plan.athlete_id !== currentUserId
+                }
                 onClick={() => router.push(`/plans/${plan.id}`)}
               />
             </li>

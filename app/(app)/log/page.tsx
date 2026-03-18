@@ -60,18 +60,35 @@ export default async function LogPage() {
     };
   });
 
-  const { data: assignedPlans } = await supabase
+  const { data: assignedPlansRaw } = await supabase
     .from("workout_plans")
     .select("id, name, scheduled_date")
-    .eq("athlete_id", user.id)
-    .order("scheduled_date", { ascending: true, nullsFirst: false });
+    .eq("athlete_id", user.id);
 
-  const { data: planCounts } = assignedPlans?.length
-    ? await supabase
-        .from("workout_plan_exercises")
-        .select("plan_id")
-        .in("plan_id", (assignedPlans ?? []).map((p) => p.id))
-    : { data: [] };
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const assignedPlans = (assignedPlansRaw ?? []).filter((p) => {
+    const sd = (p as { scheduled_date: string | null }).scheduled_date;
+    if (!sd) return true;
+    return new Date(sd) >= startOfToday;
+  });
+  assignedPlans.sort((a, b) => {
+    const sa = (a as { scheduled_date: string | null }).scheduled_date;
+    const sb = (b as { scheduled_date: string | null }).scheduled_date;
+    if (!sa && !sb) return 0;
+    if (!sa) return 1;
+    if (!sb) return -1;
+    return new Date(sa).getTime() - new Date(sb).getTime();
+  });
+
+  const assignedIds = assignedPlans.map((p) => p.id);
+  const { data: planCounts } =
+    assignedIds.length > 0
+      ? await supabase
+          .from("workout_plan_exercises")
+          .select("plan_id")
+          .in("plan_id", assignedIds)
+      : { data: [] as { plan_id: string }[] };
   const countByPlan = (planCounts ?? []).reduce(
     (acc, row) => {
       acc[row.plan_id] = (acc[row.plan_id] ?? 0) + 1;
@@ -80,7 +97,7 @@ export default async function LogPage() {
     {} as Record<string, number>
   );
 
-  const assignedWithMeta = (assignedPlans ?? []).map((p) => ({
+  const assignedWithMeta = assignedPlans.map((p) => ({
     id: p.id,
     name: p.name,
     scheduled_date: (p as { scheduled_date: string | null }).scheduled_date,

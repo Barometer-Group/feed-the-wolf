@@ -47,6 +47,8 @@ export function PlanDetailClient({ plan, currentUserId }: PlanDetailClientProps)
   const [deleting, setDeleting] = useState(false);
 
   const canEdit = plan.created_by === currentUserId;
+  const canStartWorkout =
+    !plan.athlete_id || plan.athlete_id === currentUserId;
   const dateStr = plan.scheduled_date
     ? new Date(plan.scheduled_date).toLocaleDateString("en-US", {
         weekday: "short",
@@ -147,12 +149,18 @@ export function PlanDetailClient({ plan, currentUserId }: PlanDetailClientProps)
       </div>
 
       <div className="flex flex-col gap-2">
-        <Button
-          className="min-h-[44px] w-full"
-          onClick={handleStartWorkout}
-        >
-          Start This Workout
-        </Button>
+        {canStartWorkout ? (
+          <Button
+            className="min-h-[44px] w-full"
+            onClick={handleStartWorkout}
+          >
+            Start This Workout
+          </Button>
+        ) : (
+          <p className="text-center text-sm text-muted-foreground">
+            Assigned athlete can start this workout from Log → Start From Plan.
+          </p>
+        )}
         {canEdit && (
           <>
             <Link href={`/plans/${plan.id}/edit`}>

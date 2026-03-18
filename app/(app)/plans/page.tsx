@@ -34,10 +34,11 @@ export default async function PlansPage() {
     ])
   );
 
-  const { data: counts } = await supabase
-    .from("workout_plan_exercises")
-    .select("plan_id")
-    .in("plan_id", (plans ?? []).map((p) => (p as { id: string }).id));
+  const planIds = (plans ?? []).map((p) => (p as { id: string }).id);
+  const { data: counts } =
+    planIds.length > 0
+      ? await supabase.from("workout_plan_exercises").select("plan_id").in("plan_id", planIds)
+      : { data: [] as { plan_id: string }[] };
 
   const countByPlan = (counts ?? []).reduce(
     (acc, row) => {

@@ -12,10 +12,12 @@ interface PlanCardProps {
     exercise_count: number;
     athlete_name?: string | null;
   };
+  /** Show assignee when trainer views plans they created for an athlete */
+  showAthleteName?: boolean;
   onClick: () => void;
 }
 
-export function PlanCard({ plan, onClick }: PlanCardProps) {
+export function PlanCard({ plan, showAthleteName, onClick }: PlanCardProps) {
   const dateStr = plan.scheduled_date
     ? new Date(plan.scheduled_date).toLocaleDateString("en-US", {
         weekday: "short",
@@ -44,9 +46,9 @@ export function PlanCard({ plan, onClick }: PlanCardProps) {
         <span className="text-sm text-muted-foreground">
           {plan.exercise_count} exercise{plan.exercise_count !== 1 ? "s" : ""}
         </span>
-        {plan.athlete_name && (
+        {showAthleteName && plan.athlete_name && (
           <span className="text-xs text-muted-foreground">
-            {plan.athlete_name}
+            For {plan.athlete_name}
           </span>
         )}
       </CardContent>
