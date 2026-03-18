@@ -15,7 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Check } from "lucide-react";
+import { Plus, Check, Video } from "lucide-react";
+import { MediaUpload } from "@/components/media/MediaUpload";
+import type { MediaListItem } from "@/lib/mediaTypes";
 import { toast } from "sonner";
 import { useWorkout } from "@/hooks/useWorkout";
 import { ExerciseSearchSheet } from "@/components/workout/ExerciseSearchSheet";
@@ -45,6 +47,7 @@ export default function ActiveWorkoutPage() {
   const [previousSessionValues, setPreviousSessionValues] = useState<
     Record<string, { reps?: number; weightLbs?: number; durationSeconds?: number }>
   >({});
+  const [workoutMedia, setWorkoutMedia] = useState<MediaListItem[]>([]);
 
   const {
     workout,
@@ -126,6 +129,17 @@ export default function ActiveWorkoutPage() {
           });
       });
   }, [athleteId, exercisesInWorkout, workoutId, supabase]);
+
+  const refreshWorkoutMedia = useCallback(() => {
+    void fetch(`/api/media?workout_log_id=${encodeURIComponent(workoutId)}`)
+      .then((r) => r.json())
+      .then((d: { items?: MediaListItem[] }) => setWorkoutMedia(d.items ?? []));
+  }, [workoutId]);
+
+  useEffect(() => {
+    if (!workout || workout.completed_at) return;
+    refreshWorkoutMedia();
+  }, [workout, refreshWorkoutMedia]);
 
   const handleSaveSet = useCallback(
     async (
@@ -346,10 +360,42 @@ export default function ActiveWorkoutPage() {
                     onCancel={() => setAddingSetFor(null)}
                   />
                 )}
+                <div className="mt-4 border-t border-border pt-3">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    Add media
+                  </p>
+                  <WorkoutMediaThumbnails
+                    items={workoutMedia.filter(
+                      (m) =>
+                        m.exercise_log_id &&
+                        logs.some((l) => l.id === m.exercise_log_id)
+                    )}
+                  />
+                  <MediaUpload
+                    workoutLogId={workoutId}
+                    exerciseLogId={logs[0]?.id ?? null}
+                    onUploadComplete={refreshWorkoutMedia}
+                  />
+                </div>
               </CardContent>
             </Card>
           );
         })}
+      </div>
+
+      <div className="rounded-lg border border-zinc-800 bg-card/30 p-4">
+        <h3 className="mb-2 font-semibold">Workout media</h3>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Photos or videos not tied to a specific exercise
+        </p>
+        <WorkoutMediaThumbnails
+          items={workoutMedia.filter((m) => !m.exercise_log_id)}
+        />
+        <MediaUpload
+          workoutLogId={workoutId}
+          exerciseLogId={null}
+          onUploadComplete={refreshWorkoutMedia}
+        />
       </div>
 
       <Dialog open={showFinishConfirm} onOpenChange={setShowFinishConfirm}>
@@ -365,6 +411,32 @@ export default function ActiveWorkoutPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function WorkoutMediaThumbnails({ items }: { items: MediaListItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+      {items.map((m) => (
+        <div
+          key={m.id}
+          className="h-16 w-16 shrink-0 overflow-hidden rounded-md border border-zinc-700 bg-zinc-900"
+        >
+          {m.type === "photo" ? (
+            <img
+              src={m.signedUrl}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <Video className="h-6 w-6 text-cyan-400" />
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

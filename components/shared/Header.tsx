@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
+import { NotificationBell } from "@/components/shared/NotificationBell";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,11 +43,7 @@ export function Header({ user }: HeaderProps) {
         Feed the Wolf
       </Link>
       <div className="ml-auto flex items-center gap-2">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href="/profile" aria-label="Notifications">
-            <Bell className="h-5 w-5" />
-          </Link>
-        </Button>
+        <NotificationBell />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-9 w-9 rounded-full">

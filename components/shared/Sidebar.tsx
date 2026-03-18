@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, ClipboardList, Calendar, TrendingUp, User } from "lucide-react";
+import {
+  Home,
+  ClipboardList,
+  Calendar,
+  TrendingUp,
+  Video,
+  User,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -10,6 +17,7 @@ const navItems = [
   { href: "/log", label: "Log", icon: ClipboardList },
   { href: "/plans", label: "Plans", icon: Calendar },
   { href: "/progress", label: "Progress", icon: TrendingUp },
+  { href: "/media", label: "Form Review", icon: Video },
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
 
