@@ -54,7 +54,7 @@ type ExerciseWorkflowState = {
   startMessage: string;
   activeMessage: string;
   restMessage: string;
-  /** True only after red END SET → rest screen; cleared on save / timer / repeat. */
+  /** True only after red END SET → rest screen; cleared only on save or repeat (not on timer done). */
   showCelebration: boolean;
 
   state4EditMode: boolean;
@@ -1115,7 +1115,6 @@ export default function ActiveWorkoutPage() {
     updateWorkflow(activeExerciseId, (w) => ({
       ...w,
       activeStage: 5,
-      showCelebration: false,
       state4EditMode: false,
     }));
     setRestInlineEditKind(null);
