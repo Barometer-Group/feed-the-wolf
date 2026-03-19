@@ -1025,6 +1025,7 @@ export default function ActiveWorkoutPage() {
 
   const handleSaveSetup = useCallback(
     async (values: SetValues, via: "manual" = "manual") => {
+      console.log('handleSaveSetup called - current restMessage:', activeWorkflow?.restMessage);
       if (!activeExerciseId) return;
       if (!workoutId) return;
       setSetupSaving(true);
@@ -1266,6 +1267,7 @@ export default function ActiveWorkoutPage() {
     }
 
     if (activeWorkflow.activeStage === 1) {
+      console.log('STATE 1 render - restMessage:', activeWorkflow.restMessage, 'activeStage:', activeWorkflow.activeStage);
       const setNumber = activeWorkflow.lastSetNumber ?? (logs.length || 1);
       const draft = activeWorkflow.lastSetDraft;
       const summaryBits: string[] = [];
@@ -1310,6 +1312,7 @@ export default function ActiveWorkoutPage() {
     }
 
     if (activeWorkflow.activeStage === 3) {
+      console.log('STATE 3 render - restMessage:', activeWorkflow.restMessage, 'activeStage:', activeWorkflow.activeStage);
       const setsCompleted = logs.length;
       const hasSets = setsCompleted > 0;
       const nextSetIndex = setsCompleted + 1;
