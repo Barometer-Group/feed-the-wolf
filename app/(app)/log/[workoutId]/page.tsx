@@ -53,6 +53,7 @@ type ExerciseWorkflow = {
   startMessage: string;
   activeMessage: string;
   restMessage: string;
+  showCelebration: boolean;
 
   state4EditMode: boolean;
 };
@@ -852,6 +853,7 @@ export default function ActiveWorkoutPage() {
           startMessage: pickRandomMessage(START_MESSAGES),
           activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
           restMessage: '',
+          showCelebration: false,
           state4EditMode: false,
         };
       }
@@ -859,6 +861,13 @@ export default function ActiveWorkoutPage() {
       for (const existingId of Object.keys(nextMap)) {
         if (!currentExercises.includes(existingId)) {
           delete nextMap[existingId];
+        }
+      }
+
+      for (const id of Object.keys(nextMap)) {
+        const w = nextMap[id];
+        if (w && !("showCelebration" in w)) {
+          nextMap[id] = { ...w, showCelebration: false };
         }
       }
 
@@ -1058,6 +1067,8 @@ export default function ActiveWorkoutPage() {
           setupDraft: values,
           nextDraft: w.nextDraft,
           startMessage: pickRandomMessage(START_MESSAGES),
+          restMessage: '',
+          showCelebration: false,
           state4EditMode: false,
         }));
         setRestInlineEditKind(null);
@@ -1087,6 +1098,7 @@ export default function ActiveWorkoutPage() {
       ...w,
       activeStage: 3,
       restMessage: pickRandomMessage(REST_MESSAGES),
+      showCelebration: true,
       nextDraft: w.lastSetDraft,
       state4EditMode: false,
     }));
@@ -1098,6 +1110,7 @@ export default function ActiveWorkoutPage() {
     updateWorkflow(activeExerciseId, (w) => ({
       ...w,
       activeStage: 5,
+      showCelebration: false,
       state4EditMode: false,
     }));
     setRestInlineEditKind(null);
@@ -1147,6 +1160,7 @@ export default function ActiveWorkoutPage() {
       lastSetDraft: nextValues,
       setupDraft: nextValues,
       state4EditMode: false,
+      showCelebration: false,
       activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
     }));
     setRestInlineEditKind(null);
@@ -1255,6 +1269,7 @@ export default function ActiveWorkoutPage() {
                 startMessage: pickRandomMessage(START_MESSAGES),
                 activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
                 restMessage: '',
+                showCelebration: false,
                 state4EditMode: false,
               },
             };
@@ -1457,7 +1472,7 @@ export default function ActiveWorkoutPage() {
           <h2 className="text-2xl font-bold text-zinc-100">
             {ex.exercise.name}
           </h2>
-          {w.restMessage !== '' ? (
+          {w.restMessage !== '' && w.showCelebration === true ? (
             <div className="text-sm text-zinc-300 text-center">
               {w.restMessage}
             </div>
