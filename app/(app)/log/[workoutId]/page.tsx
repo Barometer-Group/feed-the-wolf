@@ -1414,9 +1414,11 @@ export default function ActiveWorkoutPage() {
           <h2 className="text-2xl font-bold text-zinc-100">
             {getActiveExercise.exercise.name}
           </h2>
-          <div className="text-sm text-zinc-300 text-center">
-            {activeWorkflow.restMessage}
-          </div>
+          {activeWorkflow.restMessage !== '' ? (
+            <div className="text-sm text-zinc-300 text-center">
+              {activeWorkflow.restMessage}
+            </div>
+          ) : null}
 
           {editLastForm}
           {editNextForm}
