@@ -826,7 +826,7 @@ export default function ActiveWorkoutPage() {
     const currentExercises = exercisesInWorkout.map((e) => e.exercise.id);
 
     setWorkflowByExerciseId((prev) => {
-      const nextMap = { ...prev };
+      const nextMap: Record<string, ExerciseWorkflow> = { ...prev };
       for (const exId of currentExercises) {
         if (nextMap[exId]) continue;
         const ex = exercisesInWorkout.find((x) => x.exercise.id === exId);
@@ -861,13 +861,6 @@ export default function ActiveWorkoutPage() {
       for (const existingId of Object.keys(nextMap)) {
         if (!currentExercises.includes(existingId)) {
           delete nextMap[existingId];
-        }
-      }
-
-      for (const id of Object.keys(nextMap)) {
-        const w = nextMap[id];
-        if (w && !("showCelebration" in w)) {
-          nextMap[id] = { ...w, showCelebration: false };
         }
       }
 
