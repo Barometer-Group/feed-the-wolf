@@ -39,7 +39,8 @@ type ExerciseWorkflowMode = "active" | "collapsed";
 
 type ActiveStage = 0 | 1 | 2 | 3 | 5 | 4; // 5 = ready for next set (3B), 4 = move-on confirmation
 
-type ExerciseWorkflow = {
+/** Per-exercise workout UI state (active / collapsed + stage machine). */
+type ExerciseWorkflowState = {
   mode: ExerciseWorkflowMode;
   activeStage: ActiveStage;
   cameFromRest: boolean;
@@ -53,6 +54,7 @@ type ExerciseWorkflow = {
   startMessage: string;
   activeMessage: string;
   restMessage: string;
+  /** True only after red END SET → rest screen; cleared on save / timer / repeat. */
   showCelebration: boolean;
 
   state4EditMode: boolean;
@@ -771,7 +773,9 @@ export default function ActiveWorkoutPage() {
 
   const [pillExpandedExerciseId, setPillExpandedExerciseId] = useState<string | null>(null);
 
-  const [workflowByExerciseId, setWorkflowByExerciseId] = useState<Record<string, ExerciseWorkflow>>({});
+  const [workflowByExerciseId, setWorkflowByExerciseId] = useState<
+    Record<string, ExerciseWorkflowState>
+  >({});
 
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
 
@@ -825,8 +829,11 @@ export default function ActiveWorkoutPage() {
     if (loading) return;
     const currentExercises = exercisesInWorkout.map((e) => e.exercise.id);
 
-    setWorkflowByExerciseId((prev) => {
-      const nextMap: Record<string, ExerciseWorkflow> = { ...prev };
+    setWorkflowByExerciseId((prev: Record<string, ExerciseWorkflowState>) => {
+      const nextMap: Record<string, ExerciseWorkflowState> = Object.assign(
+        {},
+        prev
+      );
       for (const exId of currentExercises) {
         if (nextMap[exId]) continue;
         const ex = exercisesInWorkout.find((x) => x.exercise.id === exId);
@@ -855,7 +862,7 @@ export default function ActiveWorkoutPage() {
           restMessage: '',
           showCelebration: false,
           state4EditMode: false,
-        };
+        } satisfies ExerciseWorkflowState;
       }
 
       for (const existingId of Object.keys(nextMap)) {
@@ -943,11 +950,16 @@ export default function ActiveWorkoutPage() {
   const activeWorkflow = activeExerciseId ? workflowByExerciseId[activeExerciseId] : null;
 
   const updateWorkflow = useCallback(
-    (exerciseId: string, updater: (w: ExerciseWorkflow) => ExerciseWorkflow) => {
-      setWorkflowByExerciseId((prev) => {
+    (
+      exerciseId: string,
+      updater: (w: ExerciseWorkflowState) => ExerciseWorkflowState
+    ) => {
+      setWorkflowByExerciseId((prev: Record<string, ExerciseWorkflowState>) => {
         const current = prev[exerciseId];
         if (!current) return prev;
-        return { ...prev, [exerciseId]: updater(current) };
+        return Object.assign({}, prev, {
+          [exerciseId]: updater(current),
+        });
       });
     },
     []
@@ -1245,11 +1257,10 @@ export default function ActiveWorkoutPage() {
           addExercise(ex);
           setShowExerciseSearch(false);
           setActiveExerciseId(ex.id);
-          setWorkflowByExerciseId((prev) => {
+          setWorkflowByExerciseId((prev: Record<string, ExerciseWorkflowState>) => {
             const last = emptySetValues();
             if (prev[ex.id]) return prev;
-            return {
-              ...prev,
+            return Object.assign({}, prev, {
               [ex.id]: {
                 mode: "active",
                 activeStage: 0,
@@ -1264,8 +1275,8 @@ export default function ActiveWorkoutPage() {
                 restMessage: '',
                 showCelebration: false,
                 state4EditMode: false,
-              },
-            };
+              } satisfies ExerciseWorkflowState,
+            });
           });
         }}
       />
