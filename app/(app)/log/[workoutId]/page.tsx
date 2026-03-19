@@ -851,7 +851,7 @@ export default function ActiveWorkoutPage() {
           lastSetNumber: last ? last.set_number : null,
           startMessage: pickRandomMessage(START_MESSAGES),
           activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
-          restMessage: pickRandomMessage(REST_MESSAGES),
+          restMessage: '',
           state4EditMode: false,
         };
       }
@@ -984,7 +984,6 @@ export default function ActiveWorkoutPage() {
       activeStage: 5,
       cameFromRest: false,
       state4EditMode: false,
-      restMessage: pickRandomMessage(REST_MESSAGES),
     }));
     setRestInlineEditKind(null);
   }, [
@@ -1233,7 +1232,7 @@ export default function ActiveWorkoutPage() {
                     lastSetNumber: null,
                     startMessage: pickRandomMessage(START_MESSAGES),
                     activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
-                    restMessage: pickRandomMessage(REST_MESSAGES),
+                    restMessage: '',
                     state4EditMode: false,
                   },
                 };
