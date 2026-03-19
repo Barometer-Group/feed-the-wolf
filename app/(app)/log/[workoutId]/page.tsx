@@ -50,7 +50,12 @@ export default function ActiveWorkoutPage() {
     Record<string, { reps?: number; weightLbs?: number; durationSeconds?: number }>
   >({});
   const [workoutMedia, setWorkoutMedia] = useState<MediaListItem[]>([]);
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [lastDuplicatedLogId, setLastDuplicatedLogId] = useState<string | null>(
+    null
+  );
   const prToastKeysRef = useRef<Set<string>>(new Set());
+  const supabase = createClient();
 
   const {
     workout,
@@ -63,7 +68,71 @@ export default function ActiveWorkoutPage() {
     refetch,
   } = useWorkout(workoutId, athleteId ?? "");
 
-  const supabase = createClient();
+  const duplicateSet = useCallback(
+    async (exerciseId: string, log: ExerciseLog) => {
+      if (!workoutId) return;
+      const entry = exercisesInWorkout.find((e) => e.exercise.id === exerciseId);
+      const nextSetNumber = (entry?.logs.length ?? 0) + 1;
+      const { data: inserted, error } = await supabase
+        .from("exercise_logs")
+        .insert({
+          workout_log_id: workoutId,
+          exercise_id: exerciseId,
+          set_number: nextSetNumber,
+          reps: log.reps,
+          weight_lbs: log.weight_lbs,
+          duration_seconds: log.duration_seconds,
+          distance_meters: log.distance_meters,
+          notes: log.notes,
+          logged_via: "manual",
+        })
+        .select("id")
+        .single();
+
+      if (error || !inserted) {
+        toast.error("Failed to duplicate set");
+        return;
+      }
+      const newId = (inserted as { id: string }).id;
+      await refetch();
+      setLastDuplicatedLogId(newId);
+      setShowRestTimer(true);
+      setTimeout(() => setLastDuplicatedLogId(null), 2000);
+    },
+    [workoutId, exercisesInWorkout, supabase, refetch]
+  );
+
+  const updateSet = useCallback(
+    async (
+      logId: string,
+      payload: {
+        reps: number | null;
+        weightLbs: number | null;
+        durationSeconds: number | null;
+        distanceMeters: number | null;
+        notes: string | null;
+      }
+    ) => {
+      const { error } = await supabase
+        .from("exercise_logs")
+        .update({
+          reps: payload.reps,
+          weight_lbs: payload.weightLbs,
+          duration_seconds: payload.durationSeconds,
+          distance_meters: payload.distanceMeters,
+          notes: payload.notes,
+        })
+        .eq("id", logId);
+
+      if (error) {
+        toast.error(error.message ?? "Failed to update set");
+        return;
+      }
+      setEditingLogId(null);
+      await refetch();
+    },
+    [supabase, refetch]
+  );
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -350,18 +419,23 @@ export default function ActiveWorkoutPage() {
                         <th className="py-2 pr-4">Reps</th>
                         <th className="py-2 pr-4">Weight</th>
                         <th className="py-2 pr-4">Dur</th>
-                        <th className="py-2">✓</th>
+                        <th className="py-2 pr-2">✓</th>
+                        <th className="py-2 w-[100px]">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {logs.map((log) => (
                         <ExerciseSetRow
                           key={log.id}
-                          setNumber={log.set_number}
-                          reps={log.reps}
-                          weightLbs={log.weight_lbs ? Number(log.weight_lbs) : null}
-                          durationSeconds={log.duration_seconds}
-                          distanceMeters={log.distance_meters ? Number(log.distance_meters) : null}
+                          log={log}
+                          isEditing={editingLogId === log.id}
+                          highlightNew={lastDuplicatedLogId === log.id}
+                          onStartEdit={() => setEditingLogId(log.id)}
+                          onSaveEdit={(payload) =>
+                            updateSet(log.id, payload)
+                          }
+                          onCancelEdit={() => setEditingLogId(null)}
+                          onDuplicate={() => duplicateSet(exercise.id, log)}
                         />
                       ))}
                     </tbody>
@@ -369,15 +443,27 @@ export default function ActiveWorkoutPage() {
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <Button
-                    variant="outline"
+                    variant="default"
                     size="sm"
-                    className="min-h-[44px]"
+                    className="min-h-[44px] flex-1 bg-white text-black hover:bg-zinc-100 sm:flex-none"
                     onClick={() =>
                       setAddingSetFor(isAddingSet ? null : exercise.id)
                     }
                   >
                     Add Set
                   </Button>
+                  {logs.length >= 1 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px] flex-1 border-zinc-700 bg-zinc-700 text-zinc-100 hover:bg-zinc-600 sm:flex-none"
+                      onClick={() =>
+                        duplicateSet(exercise.id, logs[logs.length - 1])
+                      }
+                    >
+                      Repeat Last
+                    </Button>
+                  )}
                   <VoiceInput
                     exerciseNames={exerciseNames}
                     onSave={(payload: VoiceInputSavePayload) =>

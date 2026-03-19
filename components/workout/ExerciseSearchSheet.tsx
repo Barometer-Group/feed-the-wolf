@@ -126,8 +126,11 @@ export function ExerciseSearchSheet({
             onChange={(e) => setSearch(e.target.value)}
           />
           <div
-            className="flex gap-2 overflow-x-auto pb-1"
-            style={{ WebkitOverflowScrolling: "touch" }}
+            className="flex flex-nowrap gap-2 overflow-x-auto px-1 [&::-webkit-scrollbar]:hidden"
+            style={{
+              WebkitOverflowScrolling: "touch",
+              scrollbarWidth: "none",
+            }}
           >
             {CATEGORIES.map((c) => {
               const isActive = category === c.value;
@@ -136,7 +139,7 @@ export function ExerciseSearchSheet({
                   key={c.value}
                   type="button"
                   onClick={() => setCategory(c.value)}
-                  className={`flex min-w-[64px] shrink-0 flex-col items-center gap-1 rounded-lg px-3 py-2 text-center text-sm transition-colors ${
+                  className={`flex min-w-[72px] shrink-0 flex-col items-center gap-1 rounded-lg px-3 py-2 text-center text-sm transition-colors min-h-[44px] justify-center ${
                     isActive
                       ? "bg-white text-black"
                       : "bg-zinc-800 text-zinc-400"
