@@ -39,6 +39,12 @@ export interface CompleteWorkoutResult {
   newBadges: Array<{ type: string; title: string; description: string }>;
 }
 
+export interface AddSetResult {
+  prHint: SetSavePrHint | null;
+  logId: string;
+  setNumber: number;
+}
+
 export function useWorkout(workoutId: string | null, athleteId: string) {
   const [workout, setWorkout] = useState<WorkoutLog | null>(null);
   const [exercises, setExercises] = useState<ExerciseInWorkout[]>([]);
@@ -177,7 +183,7 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
         notes: string | null;
       },
       loggedVia: "manual" | "voice"
-    ): Promise<SetSavePrHint | null> => {
+    ): Promise<AddSetResult | null> => {
       if (!workoutId) return null;
       const entry = exercises.find((e) => e.exercise.id === exerciseId);
       const nextSetNumber = (entry?.logs.length ?? 0) + 1;
@@ -249,7 +255,7 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
       }
 
       await fetchWorkout();
-      return prHint;
+      return { prHint, logId, setNumber: nextSetNumber };
     },
     [workoutId, exercises, supabase, fetchWorkout]
   );
