@@ -1025,8 +1025,8 @@ export default function ActiveWorkoutPage() {
 
   const handleSaveSetup = useCallback(
     async (values: SetValues, via: "manual" = "manual") => {
-      console.log('handleSaveSetup called - current restMessage:', activeWorkflow?.restMessage);
       if (!activeExerciseId) return;
+      setActiveExerciseId(activeExerciseId);
       if (!workoutId) return;
       setSetupSaving(true);
       try {
@@ -1082,6 +1082,7 @@ export default function ActiveWorkoutPage() {
 
   const handleCompleteActiveSet = useCallback(() => {
     if (!activeExerciseId || !activeWorkflow) return;
+    setActiveExerciseId(activeExerciseId);
     updateWorkflow(activeExerciseId, (w) => ({
       ...w,
       activeStage: 3,
@@ -1196,66 +1197,98 @@ export default function ActiveWorkoutPage() {
       .filter((id) => !dismissedExerciseIds.has(id));
   }, [dismissedExerciseIds, exercisesInWorkout, workflowByExerciseId]);
 
-  const renderActiveStage = () => {
-    if (!getActiveExercise || !activeWorkflow || !activeExerciseId) {
-      return (
-            <div className="space-y-4">
-          <Button
-            variant="outline"
-            size="lg"
-            className="min-h-[44px] w-full border-zinc-700"
-            onClick={() => setShowExerciseSearch(true)}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Exercise
-          </Button>
-          <ExerciseSearchSheet
-            open={showExerciseSearch}
-            onOpenChange={setShowExerciseSearch}
-                exercises={exerciseLibrary}
-            onSelect={(ex) => {
-              addExercise(ex);
-              setShowExerciseSearch(false);
-              setActiveExerciseId(ex.id);
-              setWorkflowByExerciseId((prev) => {
-                const last = emptySetValues();
-                if (prev[ex.id]) return prev;
-                return {
-                  ...prev,
-                  [ex.id]: {
-                    mode: "active",
-                    activeStage: 0,
-                    cameFromRest: false,
-                    setupDraft: last,
-                    nextDraft: last,
-                    lastSetDraft: last,
-                    lastSetLogId: null,
-                    lastSetNumber: null,
-                    startMessage: pickRandomMessage(START_MESSAGES),
-                    activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
-                    restMessage: '',
-                    state4EditMode: false,
-                  },
-                };
-              });
-            }}
-          />
-        </div>
+  const activeModeExerciseIdsOrdered = useMemo(() => {
+    const ids = exercisesInWorkout
+      .map((e) => e.exercise.id)
+      .filter(
+        (id) =>
+          !dismissedExerciseIds.has(id) &&
+          workflowByExerciseId[id]?.mode === "active"
       );
+    if (ids.length === 0) return [];
+    const primary =
+      activeExerciseId && ids.includes(activeExerciseId)
+        ? activeExerciseId
+        : null;
+    if (!primary) return ids;
+    return [primary, ...ids.filter((id) => id !== primary)];
+  }, [
+    activeExerciseId,
+    dismissedExerciseIds,
+    exercisesInWorkout,
+    workflowByExerciseId,
+  ]);
+
+  const renderAddExerciseEmptyState = () => (
+    <div className="space-y-4">
+      <Button
+        variant="outline"
+        size="lg"
+        className="min-h-[44px] w-full border-zinc-700"
+        onClick={() => setShowExerciseSearch(true)}
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        Add Exercise
+      </Button>
+      <ExerciseSearchSheet
+        open={showExerciseSearch}
+        onOpenChange={setShowExerciseSearch}
+        exercises={exerciseLibrary}
+        onSelect={(ex) => {
+          addExercise(ex);
+          setShowExerciseSearch(false);
+          setActiveExerciseId(ex.id);
+          setWorkflowByExerciseId((prev) => {
+            const last = emptySetValues();
+            if (prev[ex.id]) return prev;
+            return {
+              ...prev,
+              [ex.id]: {
+                mode: "active",
+                activeStage: 0,
+                cameFromRest: false,
+                setupDraft: last,
+                nextDraft: last,
+                lastSetDraft: last,
+                lastSetLogId: null,
+                lastSetNumber: null,
+                startMessage: pickRandomMessage(START_MESSAGES),
+                activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
+                restMessage: '',
+                state4EditMode: false,
+              },
+            };
+          });
+        }}
+      />
+    </div>
+  );
+
+  const renderActiveStageForExercise = (exerciseId: string) => {
+    const ex = exercisesInWorkout.find((e) => e.exercise.id === exerciseId);
+    const w = workflowByExerciseId[exerciseId];
+    if (!ex || !w || w.mode !== "active") return null;
+
+    const primaryExerciseId =
+      activeExerciseId ?? activeModeExerciseIdsOrdered[0] ?? null;
+    if (
+      primaryExerciseId != null &&
+      exerciseId !== primaryExerciseId &&
+      w.activeStage !== 3
+    ) {
+      return null;
     }
 
-    const logs = getActiveExercise.logs;
+    const logs = ex.logs;
 
-    if (activeWorkflow.mode !== "active") return null;
-
-    if (activeWorkflow.activeStage === 0) {
+    if (w.activeStage === 0) {
       return (
         <div className="space-y-3">
           <h2 className="text-2xl font-bold text-zinc-100">
-            {getActiveExercise.exercise.name}
+            {ex.exercise.name}
           </h2>
           <SetupForm
-            initial={activeWorkflow.setupDraft}
+            initial={w.setupDraft}
             saving={setupSaving}
             onCancel={handleCancelSetup}
             onSave={(v) => {
@@ -1266,10 +1299,9 @@ export default function ActiveWorkoutPage() {
       );
     }
 
-    if (activeWorkflow.activeStage === 1) {
-      console.log('STATE 1 render - restMessage:', activeWorkflow.restMessage, 'activeStage:', activeWorkflow.activeStage);
-      const setNumber = activeWorkflow.lastSetNumber ?? (logs.length || 1);
-      const draft = activeWorkflow.lastSetDraft;
+    if (w.activeStage === 1) {
+      const setNumber = w.lastSetNumber ?? (logs.length || 1);
+      const draft = w.lastSetDraft;
       const summaryBits: string[] = [];
       if (draft.reps != null) summaryBits.push(`${draft.reps} reps`);
       if (draft.weightLbs != null) summaryBits.push(`@ ${draft.weightLbs} lbs`);
@@ -1278,44 +1310,57 @@ export default function ActiveWorkoutPage() {
       return (
         <div className="space-y-3">
           <h2 className="text-2xl font-bold text-zinc-100">
-            {getActiveExercise.exercise.name}
+            {ex.exercise.name}
           </h2>
           <div className="text-sm text-zinc-300">
             Set {setNumber} — {summary}
           </div>
           <CircleActionButton
             variant="green"
-            message={activeWorkflow.startMessage}
+            message={w.startMessage}
             onClick={handleStartReady}
           />
         </div>
       );
     }
 
-    if (activeWorkflow.activeStage === 2) {
-      const setNumber = activeWorkflow.lastSetNumber ?? (logs.length || 1);
+    if (w.activeStage === 2) {
+      const setNumber = w.lastSetNumber ?? (logs.length || 1);
       return (
         <div className="space-y-3">
           <h2 className="text-2xl font-bold text-zinc-100">
-            {getActiveExercise.exercise.name}
+            {ex.exercise.name}
           </h2>
           <div className="text-sm text-zinc-300">
             Set {setNumber} in progress...
           </div>
           <CircleActionButton
             variant="red"
-            message={activeWorkflow.activeMessage}
+            message={w.activeMessage}
             onClick={handleCompleteActiveSet}
           />
         </div>
       );
     }
 
-    if (activeWorkflow.activeStage === 3) {
-      console.log('STATE 3 render - restMessage:', activeWorkflow.restMessage, 'activeStage:', activeWorkflow.activeStage);
+    if (w.activeStage === 3) {
       const setsCompleted = logs.length;
       const hasSets = setsCompleted > 0;
       const nextSetIndex = setsCompleted + 1;
+
+      if (exerciseId !== primaryExerciseId) {
+        return (
+          <div className="space-y-3">
+            <h2 className="text-2xl font-bold text-zinc-100">
+              {ex.exercise.name}
+            </h2>
+            <div className="text-sm text-zinc-300">
+              {setsCompleted} set{setsCompleted === 1 ? "" : "s"} logged
+            </div>
+            {hasSets ? <SetsDotsIndicator count={setsCompleted} /> : null}
+          </div>
+        );
+      }
 
       const completedSetsList =
         restInlineEditKind === "last" ? null : (
@@ -1328,15 +1373,12 @@ export default function ActiveWorkoutPage() {
                   log={log}
                   onUpdate={async (payload) => {
                     await updateExerciseLogFull(log.id, payload);
-                    if (
-                      activeWorkflow.lastSetLogId === log.id &&
-                      activeExerciseId
-                    ) {
+                    if (w.lastSetLogId === log.id) {
                       const nextDraft = payload;
-                      updateWorkflow(activeExerciseId, (w) => ({
-                        ...w,
-                        lastSetDraft: { ...w.lastSetDraft, ...nextDraft },
-                        nextDraft: { ...w.nextDraft, ...nextDraft },
+                      updateWorkflow(exerciseId, (wf) => ({
+                        ...wf,
+                        lastSetDraft: { ...wf.lastSetDraft, ...nextDraft },
+                        nextDraft: { ...wf.nextDraft, ...nextDraft },
                       }));
                     }
                   }}
@@ -1347,27 +1389,25 @@ export default function ActiveWorkoutPage() {
         );
 
       const editLastForm =
-        restInlineEditKind === "last" && activeWorkflow.lastSetLogId ? (
+        restInlineEditKind === "last" && w.lastSetLogId ? (
           <div className="rounded-xl border border-zinc-800 bg-card/40 p-3">
             <div className="mb-2 text-xs font-medium text-zinc-400">
               Edit LAST set
             </div>
             <SetupForm
-              initial={activeWorkflow.lastSetDraft}
+              initial={w.lastSetDraft}
               saving={editingLastSaving}
               onCancel={() => setRestInlineEditKind(null)}
               onSave={async (values) => {
-                if (!activeWorkflow.lastSetLogId) return;
+                if (!w.lastSetLogId) return;
                 setEditingLastSaving(true);
                 try {
-                  await updateExerciseLogFull(activeWorkflow.lastSetLogId, values);
-                  if (activeExerciseId) {
-                    updateWorkflow(activeExerciseId, (w) => ({
-                      ...w,
-                      lastSetDraft: { ...w.lastSetDraft, ...values },
-                      nextDraft: { ...w.nextDraft, ...values },
-                    }));
-                  }
+                  await updateExerciseLogFull(w.lastSetLogId, values);
+                  updateWorkflow(exerciseId, (wf) => ({
+                    ...wf,
+                    lastSetDraft: { ...wf.lastSetDraft, ...values },
+                    nextDraft: { ...wf.nextDraft, ...values },
+                  }));
                   setRestInlineEditKind(null);
                 } catch (e) {
                   toast.error(
@@ -1388,15 +1428,15 @@ export default function ActiveWorkoutPage() {
               Set {nextSetIndex}
             </div>
             <SetupForm
-              initial={activeWorkflow.nextDraft}
+              initial={w.nextDraft}
               saving={editingNextSaving}
               onCancel={() => setRestInlineEditKind(null)}
               onSave={async (values) => {
                 setEditingNextSaving(true);
                 try {
-                  updateWorkflow(activeExerciseId, (w) => ({
-                    ...w,
-                    nextDraft: { ...w.nextDraft, ...values },
+                  updateWorkflow(exerciseId, (wf) => ({
+                    ...wf,
+                    nextDraft: { ...wf.nextDraft, ...values },
                   }));
                   setRestInlineEditKind(null);
                 } catch (e) {
@@ -1415,11 +1455,11 @@ export default function ActiveWorkoutPage() {
       return (
         <div className="space-y-3">
           <h2 className="text-2xl font-bold text-zinc-100">
-            {getActiveExercise.exercise.name}
+            {ex.exercise.name}
           </h2>
-          {activeWorkflow.restMessage !== '' ? (
+          {w.restMessage !== '' ? (
             <div className="text-sm text-zinc-300 text-center">
-              {activeWorkflow.restMessage}
+              {w.restMessage}
             </div>
           ) : null}
 
@@ -1457,13 +1497,13 @@ export default function ActiveWorkoutPage() {
       );
     }
 
-    if (activeWorkflow.activeStage === 5) {
+    if (w.activeStage === 5) {
       const setsCompleted = logs.length;
 
       return (
         <div className="space-y-3">
           <h2 className="text-2xl font-bold text-zinc-100">
-            {getActiveExercise.exercise.name}
+            {ex.exercise.name}
           </h2>
 
           <CircleActionButton
@@ -1482,14 +1522,11 @@ export default function ActiveWorkoutPage() {
                   log={log}
                   onUpdate={async (payload) => {
                     await updateExerciseLogFull(log.id, payload);
-                    if (
-                      activeWorkflow.lastSetLogId === log.id &&
-                      activeExerciseId
-                    ) {
-                      updateWorkflow(activeExerciseId, (w) => ({
-                        ...w,
-                        lastSetDraft: { ...w.lastSetDraft, ...payload },
-                        nextDraft: { ...w.nextDraft, ...payload },
+                    if (w.lastSetLogId === log.id) {
+                      updateWorkflow(exerciseId, (wf) => ({
+                        ...wf,
+                        lastSetDraft: { ...wf.lastSetDraft, ...payload },
+                        nextDraft: { ...wf.nextDraft, ...payload },
                       }));
                     }
                   }}
@@ -1511,12 +1548,12 @@ export default function ActiveWorkoutPage() {
       );
     }
 
-    if (activeWorkflow.activeStage === 4) {
+    if (w.activeStage === 4) {
       const setCount = logs.length;
       return (
         <div className="space-y-3">
           <h2 className="text-2xl font-bold text-zinc-100">
-            {getActiveExercise.exercise.name}
+            {ex.exercise.name}
           </h2>
           <div className="text-sm text-zinc-300">
             {setCount} set{setCount === 1 ? "" : "s"} completed
@@ -1532,9 +1569,8 @@ export default function ActiveWorkoutPage() {
               variant="outline"
               className="min-h-[44px] border-zinc-700 bg-zinc-900/40"
               onClick={() =>
-                activeExerciseId &&
-                updateWorkflow(activeExerciseId, (w) => ({
-                  ...w,
+                updateWorkflow(exerciseId, (wf) => ({
+                  ...wf,
                   activeStage: 5,
                   state4EditMode: false,
                 }))
@@ -1752,11 +1788,24 @@ export default function ActiveWorkoutPage() {
       </Dialog>
 
       <div className="space-y-4">
-        <Card className="border-zinc-800 bg-card/30 p-4">
-          <CardContent className="space-y-4 p-0">
-            {renderActiveStage()}
-          </CardContent>
-        </Card>
+        {activeModeExerciseIdsOrdered.length === 0 ? (
+          <Card className="border-zinc-800 bg-card/30 p-4">
+            <CardContent className="space-y-4 p-0">
+              {renderAddExerciseEmptyState()}
+            </CardContent>
+          </Card>
+        ) : (
+          activeModeExerciseIdsOrdered.map((exerciseId) => (
+            <Card
+              key={exerciseId}
+              className="border-zinc-800 bg-card/30 p-4"
+            >
+              <CardContent className="space-y-4 p-0">
+                {renderActiveStageForExercise(exerciseId)}
+              </CardContent>
+            </Card>
+          ))
+        )}
 
         {renderCompletedPills()}
 
