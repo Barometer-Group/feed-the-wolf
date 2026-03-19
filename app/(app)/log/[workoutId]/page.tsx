@@ -1112,16 +1112,44 @@ export default function ActiveWorkoutPage() {
     setRestInlineEditKind(null);
   }, [activeExerciseId, updateWorkflow]);
 
-  const handleSirCanIHaveAnother = useCallback(() => {
+  const handleSirCanIHaveAnother = useCallback(async () => {
     if (!activeExerciseId || !activeWorkflow) return;
+
+    const nextValues = activeWorkflow.nextDraft;
+    const result = await addSet(activeExerciseId, nextValues, "manual");
+    const addResult = result as AddSetResult | null;
+    if (!addResult) {
+      toast.error("Failed to start next set");
+      return;
+    }
+
+    const { prHint, logId, setNumber } = addResult;
+    if (prHint?.isPR && prHint.prType) {
+      const k = `${activeExerciseId}-${prHint.prType}`;
+      if (!prToastKeysRef.current.has(k)) {
+        prToastKeysRef.current.add(k);
+        showPRToast({
+          exerciseName: prHint.exerciseName,
+          prType: prHint.prType,
+          weightLbs: prHint.prType === "weight" ? prHint.weightLbs : 0,
+          reps: prHint.prType === "reps" ? prHint.reps : 0,
+        });
+      }
+    }
+
     updateWorkflow(activeExerciseId, (w) => ({
       ...w,
-      activeStage: 0,
+      activeStage: 2, // go directly to ACTIVE SET (red button)
       cameFromRest: true,
-      setupDraft: w.nextDraft,
+      lastSetLogId: logId,
+      lastSetNumber: setNumber,
+      lastSetDraft: nextValues,
+      setupDraft: nextValues,
       state4EditMode: false,
+      activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
     }));
-  }, [activeExerciseId, activeWorkflow, updateWorkflow]);
+    setRestInlineEditKind(null);
+  }, [activeExerciseId, activeWorkflow, addSet, updateWorkflow]);
 
   const handleSaveAndCollapseExercise = useCallback(() => {
     if (!activeExerciseId) return;
@@ -1427,14 +1455,6 @@ export default function ActiveWorkoutPage() {
 
     if (activeWorkflow.activeStage === 5) {
       const setsCompleted = logs.length;
-      const nextSetNumber = setsCompleted + 1;
-
-      const nextMessage =
-        nextSetNumber === 2
-          ? "Sir, Can I Have Another"
-          : nextSetNumber === 3
-            ? "THANK YOU SIR, CAN I HAVE ANOTHER"
-            : "THANK YOU SIR, CAN I HAVE ANOTHER!!! 🐺";
 
       return (
         <div className="space-y-3">
@@ -1444,7 +1464,7 @@ export default function ActiveWorkoutPage() {
 
           <CircleActionButton
             variant="green"
-            message={nextMessage}
+            message={NEXT_REPEAT_FIRST}
             onClick={handleSirCanIHaveAnother}
           />
 
