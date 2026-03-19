@@ -37,7 +37,7 @@ type RestInlineEditKind = "last" | "next" | null;
 
 type ExerciseWorkflowMode = "active" | "collapsed";
 
-type ActiveStage = 0 | 1 | 2 | 3 | 4; // 4 = move-on confirmation (top)
+type ActiveStage = 0 | 1 | 2 | 3 | 5 | 4; // 5 = ready for next set (3B), 4 = move-on confirmation
 
 type ExerciseWorkflow = {
   mode: ExerciseWorkflowMode;
@@ -59,12 +59,12 @@ type ExerciseWorkflow = {
 
 const START_MESSAGES = [
   "LETS GO!",
-  "Feed the Wolf 🐺",
-  "Time to Hunt",
+  "Time to Hunt 🐺",
   "No Excuses",
   "Attack!",
-  "Do it.",
-  "The wolf is hungry",
+  "Do It.",
+  "Feed the Wolf 🐺",
+  "Hunt.",
 ] as const;
 
 const ACTIVE_MESSAGES = [
@@ -81,9 +81,10 @@ const ACTIVE_MESSAGES = [
 const REST_MESSAGES = [
   "Good work!!! Fistbump! 🤜",
   "The wolf approves 🐺",
-  "Rest up, pup",
-  "Earning it",
-  "You're doing it!",
+  "Earning it.",
+  "That's what I'm talking about",
+  "YES. 🐺",
+  "Get some rest, hunter"
 ] as const;
 
 const NEXT_REPEAT_FIRST = "Sir, Can I Have Another";
@@ -106,6 +107,66 @@ function formatSetLine(log: ExerciseLog): string {
     parts.push(`${Number(log.distance_meters)}m`);
   }
   return parts.length ? parts.join(" ") : "—";
+}
+
+function SetsDotsIndicator({ count }: { count: number }) {
+  const maxDots = 10;
+  const dots = Math.min(count, maxDots);
+  const extra = count - maxDots;
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-sm text-zinc-400">Sets</span>
+      <div className="flex items-center gap-1">
+        {Array.from({ length: dots }).map((_, idx) => (
+          <div
+            key={idx}
+            className="h-3 w-3 rounded-full"
+            style={{ backgroundColor: "#22c55e" }}
+          />
+        ))}
+        {extra > 0 ? (
+          <span className="text-xs text-zinc-500">+{extra}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DotsOnlyIndicator({ count }: { count: number }) {
+  const maxDots = 10;
+  const dots = Math.min(count, maxDots);
+  const extra = count - maxDots;
+
+  return (
+    <div className="flex items-center gap-1">
+      {Array.from({ length: dots }).map((_, idx) => (
+        <div
+          key={idx}
+          className="h-3 w-3 rounded-full"
+          style={{ backgroundColor: "#22c55e" }}
+        />
+      ))}
+      {extra > 0 ? (
+        <span className="text-xs text-zinc-500">+{extra}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function renderSetReadOnlyList(logs: ExerciseLog[]) {
+  return (
+    <div className="space-y-2">
+      {logs.map((log) => (
+        <div
+          key={log.id}
+          className="rounded-lg border border-zinc-800 bg-card/40 p-3 text-sm text-zinc-100"
+        >
+          Set {log.set_number} — {formatSetLine(log)}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function emptySetValues(): SetValues {
@@ -237,7 +298,6 @@ function RestCountdown({
     <div
       className={`flex flex-col items-center gap-2 rounded-xl border bg-card/50 p-4 ${className ?? ""}`}
     >
-      <div className="text-sm text-muted-foreground">Rest</div>
       <div className="text-5xl font-bold tabular-nums">{display}</div>
       <button
         type="button"
@@ -548,25 +608,17 @@ function EditableSetRowFull({
 
   if (!editing) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-card p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-sm font-medium text-zinc-100">
-              Set {log.set_number}
-            </div>
-            <div className="mt-1 text-sm text-muted-foreground">
-              {formatSetLine(log)}
-            </div>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setEditing(true)}
-            className="min-h-[44px]"
-          >
-            ✏️ Edit
-          </Button>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") setEditing(true);
+        }}
+        className="min-h-[44px] cursor-pointer rounded-lg border border-zinc-800 bg-card p-3 active:bg-accent"
+      >
+        <div className="text-sm font-medium text-zinc-100">
+          Set {log.set_number} — {formatSetLine(log)}
         </div>
       </div>
     );
@@ -826,6 +878,13 @@ export default function ActiveWorkoutPage() {
       setActiveExerciseId(null);
     }
 
+    const hasCollapsedPills = exercisesInWorkout.some(
+      (e) =>
+        e.logs.length > 0 &&
+        workflowByExerciseId[e.exercise.id]?.mode === "collapsed"
+    );
+    if (hasCollapsedPills) return;
+
     if (activeExerciseId) return;
     const next = exercisesInWorkout.find((e) => {
       const id = e.exercise.id;
@@ -922,7 +981,7 @@ export default function ActiveWorkoutPage() {
     }
     updateWorkflow(activeExerciseId, (w) => ({
       ...w,
-      activeStage: 3,
+      activeStage: 5,
       cameFromRest: false,
       state4EditMode: false,
       restMessage: pickRandomMessage(REST_MESSAGES),
@@ -1033,6 +1092,16 @@ export default function ActiveWorkoutPage() {
     setRestInlineEditKind(null);
   }, [activeExerciseId, activeWorkflow, updateWorkflow]);
 
+  const handleRestComplete = useCallback(() => {
+    if (!activeExerciseId) return;
+    updateWorkflow(activeExerciseId, (w) => ({
+      ...w,
+      activeStage: 5,
+      state4EditMode: false,
+    }));
+    setRestInlineEditKind(null);
+  }, [activeExerciseId, updateWorkflow]);
+
   const handleAdvanceToMoveOn = useCallback(() => {
     if (!activeExerciseId) return;
     updateWorkflow(activeExerciseId, (w) => ({
@@ -1062,8 +1131,10 @@ export default function ActiveWorkoutPage() {
       activeStage: 4,
       state4EditMode: false,
     }));
-    chooseNextActiveExerciseId(activeExerciseId);
-  }, [activeExerciseId, chooseNextActiveExerciseId, updateWorkflow]);
+    setActiveExerciseId(null);
+    setPillExpandedExerciseId(null);
+    setRestInlineEditKind(null);
+  }, [activeExerciseId, updateWorkflow]);
 
   const handleSaveAndFinish = useCallback(
     async (perceivedEffort: number | null, overallNotes: string | null) => {
@@ -1212,139 +1283,206 @@ export default function ActiveWorkoutPage() {
     }
 
     if (activeWorkflow.activeStage === 3) {
-      const setNumber = activeWorkflow.lastSetNumber ?? (logs.length || 1);
-      const nextRepeatMessage =
-        setNumber <= 1
-          ? NEXT_REPEAT_FIRST
-          : NEXT_REPEAT_SUBSEQUENT[(setNumber - 2) % NEXT_REPEAT_SUBSEQUENT.length];
+      const setsCompleted = logs.length;
+      const hasSets = setsCompleted > 0;
+      const nextSetIndex = setsCompleted + 1;
 
-      const restInline = (
-        <>
-          {restInlineEditKind === "last" && (
-            <SimpleEditForm
-              title="Edit LAST set"
+      const completedSetsList =
+        restInlineEditKind === "last" ? null : (
+          <div className="space-y-2">
+            {hasSets ? <SetsDotsIndicator count={setsCompleted} /> : null}
+            <div className="space-y-2">
+              {logs.map((log) => (
+                <EditableSetRowFull
+                  key={log.id}
+                  log={log}
+                  onUpdate={async (payload) => {
+                    await updateExerciseLogFull(log.id, payload);
+                    if (
+                      activeWorkflow.lastSetLogId === log.id &&
+                      activeExerciseId
+                    ) {
+                      const nextDraft = payload;
+                      updateWorkflow(activeExerciseId, (w) => ({
+                        ...w,
+                        lastSetDraft: { ...w.lastSetDraft, ...nextDraft },
+                        nextDraft: { ...w.nextDraft, ...nextDraft },
+                      }));
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        );
+
+      const editLastForm =
+        restInlineEditKind === "last" && activeWorkflow.lastSetLogId ? (
+          <div className="rounded-xl border border-zinc-800 bg-card/40 p-3">
+            <div className="mb-2 text-xs font-medium text-zinc-400">
+              Edit LAST set
+            </div>
+            <SetupForm
+              initial={activeWorkflow.lastSetDraft}
               saving={editingLastSaving}
-              initial={{
-                reps: activeWorkflow.lastSetDraft.reps,
-                weightLbs: activeWorkflow.lastSetDraft.weightLbs,
-                notes: activeWorkflow.lastSetDraft.notes,
-              }}
-              onCancel={() => {
-                setRestInlineEditKind(null);
-              }}
-              onSave={async (vals) => {
+              onCancel={() => setRestInlineEditKind(null)}
+              onSave={async (values) => {
                 if (!activeWorkflow.lastSetLogId) return;
                 setEditingLastSaving(true);
                 try {
-                  await supabase.from("exercise_logs").update({
-                    reps: vals.reps,
-                    weight_lbs: vals.weightLbs,
-                    notes: vals.notes,
-                  }).eq("id", activeWorkflow.lastSetLogId);
-                  await refetch();
-                  updateWorkflow(activeExerciseId, (w) => ({
-                    ...w,
-                    lastSetDraft: {
-                      ...w.lastSetDraft,
-                      reps: vals.reps,
-                      weightLbs: vals.weightLbs,
-                      notes: vals.notes,
-                    },
-                    nextDraft: {
-                      ...w.nextDraft,
-                      reps: vals.reps,
-                      weightLbs: vals.weightLbs,
-                      notes: vals.notes,
-                    },
-                  }));
+                  await updateExerciseLogFull(activeWorkflow.lastSetLogId, values);
+                  if (activeExerciseId) {
+                    updateWorkflow(activeExerciseId, (w) => ({
+                      ...w,
+                      lastSetDraft: { ...w.lastSetDraft, ...values },
+                      nextDraft: { ...w.nextDraft, ...values },
+                    }));
+                  }
                   setRestInlineEditKind(null);
                 } catch (e) {
                   toast.error(
-                    e instanceof Error ? e.message : "Failed to update last set"
+                    e instanceof Error ? e.message : "Failed to save last set"
                   );
                 } finally {
                   setEditingLastSaving(false);
                 }
               }}
             />
-          )}
-          {restInlineEditKind === "next" && (
-            <SimpleEditForm
-              title="Edit NEXT set"
+          </div>
+        ) : null;
+
+      const editNextForm =
+        restInlineEditKind === "next" ? (
+          <div className="rounded-xl border border-zinc-800 bg-card/40 p-3">
+            <div className="mb-2 text-xs font-medium text-zinc-400">
+              Set {nextSetIndex}
+            </div>
+            <SetupForm
+              initial={activeWorkflow.nextDraft}
               saving={editingNextSaving}
-              initial={{
-                reps: activeWorkflow.nextDraft.reps,
-                weightLbs: activeWorkflow.nextDraft.weightLbs,
-                notes: activeWorkflow.nextDraft.notes,
-              }}
-              onCancel={() => {
-                setRestInlineEditKind(null);
-              }}
-              onSave={async (vals) => {
+              onCancel={() => setRestInlineEditKind(null)}
+              onSave={async (values) => {
                 setEditingNextSaving(true);
                 try {
                   updateWorkflow(activeExerciseId, (w) => ({
                     ...w,
-                    nextDraft: {
-                      ...w.nextDraft,
-                      reps: vals.reps,
-                      weightLbs: vals.weightLbs,
-                      notes: vals.notes,
-                    },
+                    nextDraft: { ...w.nextDraft, ...values },
                   }));
                   setRestInlineEditKind(null);
                 } catch (e) {
                   toast.error(
-                    e instanceof Error ? e.message : "Failed to update next draft"
+                    e instanceof Error ? e.message : "Failed to save next set"
                   );
                 } finally {
                   setEditingNextSaving(false);
                 }
               }}
             />
-          )}
-        </>
-      );
+            <div className="mt-3">{completedSetsList}</div>
+          </div>
+        ) : null;
 
       return (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h2 className="text-2xl font-bold text-zinc-100">
             {getActiveExercise.exercise.name}
           </h2>
-          {restInline}
-          <RestCountdown initialSeconds={60} onDone={handleAdvanceToMoveOn} onSkip={handleAdvanceToMoveOn} />
-          <div className="text-sm text-zinc-300 text-center">{activeWorkflow.restMessage}</div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant="outline"
-              className="min-h-[44px] border-zinc-700 bg-zinc-900/40 hover:bg-zinc-900"
-              onClick={() => setRestInlineEditKind("last")}
-            >
-              Edit LAST set
-            </Button>
-            <Button
-              variant="outline"
-              className="min-h-[44px] border-zinc-700 bg-zinc-900/40 hover:bg-zinc-900"
-              onClick={() => setRestInlineEditKind("next")}
-            >
-              Edit NEXT set
-            </Button>
+          <div className="text-sm text-zinc-300 text-center">
+            {activeWorkflow.restMessage}
           </div>
+
+          {editLastForm}
+          {editNextForm}
+
+          <RestCountdown
+            initialSeconds={60}
+            onDone={handleRestComplete}
+            onSkip={handleRestComplete}
+          />
+
+          {restInlineEditKind === null && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] border-zinc-700 bg-zinc-900/40 hover:bg-zinc-900"
+                  onClick={() => setRestInlineEditKind("last")}
+                >
+                  Edit LAST set
+                </Button>
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] border-zinc-700 bg-zinc-900/40 hover:bg-zinc-900"
+                  onClick={() => setRestInlineEditKind("next")}
+                >
+                  Edit NEXT set
+                </Button>
+              </div>
+              {completedSetsList}
+            </>
+          )}
+        </div>
+      );
+    }
+
+    if (activeWorkflow.activeStage === 5) {
+      const setsCompleted = logs.length;
+      const nextSetNumber = setsCompleted + 1;
+
+      const nextMessage =
+        nextSetNumber === 2
+          ? "Sir, Can I Have Another"
+          : nextSetNumber === 3
+            ? "THANK YOU SIR, CAN I HAVE ANOTHER"
+            : "THANK YOU SIR, CAN I HAVE ANOTHER!!! 🐺";
+
+      return (
+        <div className="space-y-3">
+          <h2 className="text-2xl font-bold text-zinc-100">
+            {getActiveExercise.exercise.name}
+          </h2>
 
           <CircleActionButton
             variant="green"
-            message={nextRepeatMessage}
+            message={nextMessage}
             onClick={handleSirCanIHaveAnother}
           />
 
-          <button
-            type="button"
-            className="mx-auto min-h-[44px] min-w-[120px] rounded-md text-sm text-zinc-400 hover:text-zinc-300 underline underline-offset-4"
-            onClick={handleAdvanceToMoveOn}
-          >
-            Move On
-          </button>
+          {setsCompleted > 0 ? <SetsDotsIndicator count={setsCompleted} /> : null}
+
+          {setsCompleted > 0 ? (
+            <div className="space-y-2">
+              {logs.map((log) => (
+                <EditableSetRowFull
+                  key={log.id}
+                  log={log}
+                  onUpdate={async (payload) => {
+                    await updateExerciseLogFull(log.id, payload);
+                    if (
+                      activeWorkflow.lastSetLogId === log.id &&
+                      activeExerciseId
+                    ) {
+                      updateWorkflow(activeExerciseId, (w) => ({
+                        ...w,
+                        lastSetDraft: { ...w.lastSetDraft, ...payload },
+                        nextDraft: { ...w.nextDraft, ...payload },
+                      }));
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {setsCompleted > 0 ? (
+            <button
+              type="button"
+              className="mx-auto min-h-[44px] min-w-[140px] rounded-md text-sm text-zinc-400 hover:text-zinc-300"
+              onClick={handleAdvanceToMoveOn}
+            >
+              Move On
+            </button>
+          ) : null}
         </div>
       );
     }
@@ -1356,37 +1494,27 @@ export default function ActiveWorkoutPage() {
           <h2 className="text-2xl font-bold text-zinc-100">
             {getActiveExercise.exercise.name}
           </h2>
-          <div className="text-sm text-zinc-300">{setCount} sets completed</div>
+          <div className="text-sm text-zinc-300">
+            {setCount} set{setCount === 1 ? "" : "s"} completed
+          </div>
 
-          {!activeWorkflow.state4EditMode ? (
-            <div className="space-y-2 rounded-xl border border-zinc-800 bg-card/30 p-3">
-              {logs.map((log) => (
-                <div key={log.id} className="text-sm text-zinc-200">
-                  <span className="font-medium text-zinc-100">Set {log.set_number}:</span>{" "}
-                  {formatSetLine(log)}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {logs.map((log) => (
-                <EditableSetRowFull
-                  key={log.id}
-                  log={log}
-                  onUpdate={async (payload) => {
-                    await updateExerciseLogFull(log.id, payload);
-                  }}
-                />
-              ))}
-            </div>
-          )}
+          {setCount > 0 ? <SetsDotsIndicator count={setCount} /> : null}
+
+          <div>{renderSetReadOnlyList(logs)}</div>
 
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
               variant="outline"
               className="min-h-[44px] border-zinc-700 bg-zinc-900/40"
-              onClick={() => updateWorkflow(activeExerciseId, (w) => ({ ...w, state4EditMode: true }))}
+              onClick={() =>
+                activeExerciseId &&
+                updateWorkflow(activeExerciseId, (w) => ({
+                  ...w,
+                  activeStage: 5,
+                  state4EditMode: false,
+                }))
+              }
             >
               Edit
             </Button>
@@ -1395,7 +1523,7 @@ export default function ActiveWorkoutPage() {
               className="min-h-[44px] bg-green-600 hover:bg-green-500"
               onClick={handleSaveAndCollapseExercise}
             >
-              Save &amp; Collapse ✓
+              Done ✓
             </Button>
           </div>
         </div>
@@ -1434,7 +1562,12 @@ export default function ActiveWorkoutPage() {
                   )
                 }
               >
-                <span className="text-sm font-semibold">{ex.exercise.name}</span>
+                <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                  <span className="min-w-0 truncate text-sm font-semibold">
+                    {ex.exercise.name}
+                  </span>
+                  <DotsOnlyIndicator count={logs.length} />
+                </div>
                 <ChevronRight className="h-4 w-4" />
               </button>
 

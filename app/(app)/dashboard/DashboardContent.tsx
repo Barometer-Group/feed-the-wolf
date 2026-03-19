@@ -322,6 +322,26 @@ function AthleteDashboardView({
   data: AthletePayload;
   onStartPlan: (planId: string) => void;
 }) {
+  const router = useRouter();
+  const [starting, setStarting] = useState(false);
+
+  const startAdHoc = async () => {
+    setStarting(true);
+    try {
+      const res = await fetch("/api/workouts", { method: "POST" });
+      const j = (await res.json()) as { id?: string; error?: string; message?: string };
+      if (!res.ok) {
+        toast.error(j.error ?? j.message ?? "Failed to start workout");
+        return;
+      }
+      if (j.id) router.push(`/log/${j.id}`);
+    } catch {
+      toast.error("Failed to start workout");
+    } finally {
+      setStarting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-10">
       <Card className="border-zinc-800 bg-zinc-950/50">
@@ -373,6 +393,25 @@ function AthleteDashboardView({
           </div>
         </CardContent>
       </Card>
+
+      <div className="space-y-2">
+        <Button
+          type="button"
+          onClick={startAdHoc}
+          disabled={starting}
+          className="min-h-[44px] w-full bg-white text-black hover:bg-zinc-100"
+        >
+          ⚡ Start Ad Hoc Workout
+        </Button>
+        <Button
+          type="button"
+          onClick={() => router.push("/log?openPlan=1")}
+          disabled={starting}
+          className="min-h-[44px] w-full bg-white text-black hover:bg-zinc-100"
+        >
+          📋 Start From Plan
+        </Button>
+      </div>
 
       <div>
         <div className="mb-2 flex items-center justify-between">

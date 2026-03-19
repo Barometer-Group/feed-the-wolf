@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dumbbell, Calendar } from "lucide-react";
@@ -35,8 +35,16 @@ export function StartWorkoutClient({
   assignedPlans,
 }: StartWorkoutClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [showPlanSheet, setShowPlanSheet] = useState(false);
+
+  useEffect(() => {
+    const openPlan = searchParams.get("openPlan");
+    if (openPlan === "1" || openPlan === "true") {
+      setShowPlanSheet(true);
+    }
+  }, [searchParams]);
 
   const handleStartAdHoc = async () => {
     setLoading(true);
