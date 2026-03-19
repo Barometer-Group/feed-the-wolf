@@ -1475,7 +1475,7 @@ export default function ActiveWorkoutPage() {
           <h2 className="text-2xl font-bold text-zinc-100">
             {ex.exercise.name}
           </h2>
-          {w.showCelebration && w.restMessage ? (
+          {w.restMessage ? (
             <div className="text-sm text-zinc-300 text-center">
               {w.restMessage}
             </div>
