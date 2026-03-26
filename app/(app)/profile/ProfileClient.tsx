@@ -129,6 +129,7 @@ export function ProfileClient({ profile, initialMode, trainers: initialTrainers,
             is_athlete: true,
             is_trainer: true,
           }),
+          credentials: "include",
         });
         if (!profileRes.ok) {
           const data = await profileRes.json().catch(() => null);
@@ -140,6 +141,7 @@ export function ProfileClient({ profile, initialMode, trainers: initialTrainers,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: newMode }),
+        credentials: "include",
       });
       if (!modeRes.ok) {
         const data = await modeRes.json().catch(() => null);
