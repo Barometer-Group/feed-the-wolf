@@ -119,18 +119,21 @@ export function ProfileClient({ profile, initialMode, trainers: initialTrainers,
     setSaving(true);
     setMode(newMode);
     try {
-      // Update is_trainer capability if switching to trainer for first time
-      const profileRes = await fetch("/api/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          is_athlete: newMode === "athlete" || profile.is_athlete,
-          is_trainer: newMode === "trainer" || profile.is_trainer,
-        }),
-      });
-      if (!profileRes.ok) {
-        const data = await profileRes.json().catch(() => null);
-        throw new Error(data?.error ?? "Failed to update profile mode");
+      // Only attempt profile capability update when opting into trainer mode
+      // for the first time. Switching between modes should rely on mode cookie.
+      if (newMode === "trainer" && !profile.is_trainer) {
+        const profileRes = await fetch("/api/profile", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            is_athlete: true,
+            is_trainer: true,
+          }),
+        });
+        if (!profileRes.ok) {
+          const data = await profileRes.json().catch(() => null);
+          throw new Error(data?.error ?? "Failed to enable trainer mode");
+        }
       }
 
       const modeRes = await fetch("/api/trainer/mode", {
