@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 
 const COOKIE = "active_mode";
 
@@ -14,12 +13,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid mode" }, { status: 400 });
   }
 
-  // If switching to athlete mode, also clear any acting-as session
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE, mode, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 30 });
+  // Write cookies on the response directly so mode persists reliably.
+  const response = NextResponse.json({ ok: true });
+  response.cookies.set(COOKIE, mode, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  });
   if (mode === "athlete") {
-    cookieStore.delete("trainer_acting_as");
+    response.cookies.delete("trainer_acting_as");
   }
 
-  return NextResponse.json({ ok: true });
+  return response;
 }
