@@ -56,3 +56,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Odometer roll animations ─────────────────────────────────────────────── */
+@keyframes odometer-up {
+  from { transform: translateY(0.45em); opacity: 0; }
+  to   { transform: translateY(0);      opacity: 1; }
+}
+@keyframes odometer-down {
+  from { transform: translateY(-0.45em); opacity: 0; }
+  to   { transform: translateY(0);       opacity: 1; }
+}

@@ -17,7 +17,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
 type HeaderProps = {
-  user: { full_name: string; avatar_url: string | null; role: string } | null;
+  user: { full_name: string; avatar_url: string | null; role?: string; is_trainer?: boolean } | null;
 };
 
 export function Header({ user }: HeaderProps) {

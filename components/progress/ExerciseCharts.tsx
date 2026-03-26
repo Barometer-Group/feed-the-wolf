@@ -3,12 +3,11 @@
 import {
   LineChart,
   Line,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
   ResponsiveContainer,
 } from "recharts";
 import type { ExerciseProgressDay } from "@/lib/progressTypes";
@@ -16,27 +15,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   CHART_PRIMARY,
+  CHART_SECONDARY,
   CHART_GRID,
   CHART_AXIS,
   tooltipProps,
   formatChartDate,
 } from "./chartStyles";
-
-function ChartSkeleton() {
-  return <Skeleton className="h-[200px] w-full rounded-lg" />;
-}
-
-function EmptyChart() {
-  return (
-    <Card className="border-zinc-800 bg-card/50">
-      <CardContent className="flex min-h-[200px] items-center justify-center p-4">
-        <p className="text-center text-sm text-muted-foreground">
-          No data yet — log some workouts to see your progress
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
 
 interface ExerciseChartsProps {
   data: ExerciseProgressDay[];
@@ -44,122 +28,123 @@ interface ExerciseChartsProps {
 }
 
 export function ExerciseCharts({ data, isLoading }: ExerciseChartsProps) {
-  const chartData = data.map((d) => ({
-    ...d,
-    label: formatChartDate(d.date),
-  }));
-
-  const hasWeight = data.some((d) => d.maxWeight > 0 || d.volume > 0);
-  const hasAny = data.length > 0;
-
   if (isLoading) {
+    return <Skeleton className="h-[260px] w-full rounded-lg" />;
+  }
+
+  if (data.length === 0) {
     return (
-      <div className="space-y-6">
-        <ChartSkeleton />
-        <ChartSkeleton />
-        <ChartSkeleton />
-      </div>
+      <Card className="border-zinc-800 bg-card/50">
+        <CardContent className="flex min-h-[200px] items-center justify-center p-4">
+          <p className="text-center text-sm text-muted-foreground">
+            No data yet — log some workouts to see your progress
+          </p>
+        </CardContent>
+      </Card>
     );
   }
 
-  if (!hasAny) {
-    return <EmptyChart />;
-  }
+  const hasWeight = data.some((d) => d.maxWeight > 0);
+  const hasReps   = data.some((d) => d.totalReps > 0);
 
-  const axisProps = {
-    stroke: CHART_AXIS,
-    tick: { fill: CHART_AXIS, fontSize: 11 },
-    tickLine: { stroke: CHART_GRID },
+  const axisBase = {
+    tick: { fontSize: 11 },
+    tickLine: false,
+    axisLine: false,
   };
 
   return (
-    <div className="space-y-6">
-      {hasWeight && (
-        <Card className="border-zinc-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-zinc-200">
-              Max Weight (lbs)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-                <XAxis dataKey="date" tickFormatter={formatChartDate} {...axisProps} />
-                <YAxis {...axisProps} width={36} />
-                <Tooltip
-                  {...tooltipProps}
-                  labelFormatter={(v) => formatChartDate(String(v))}
-                  formatter={(val) => [`${Number(val)} lbs`, "Max"]}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="maxWeight"
-                  stroke={CHART_PRIMARY}
-                  strokeWidth={2}
-                  dot={{ fill: CHART_PRIMARY, r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
+    <Card className="border-zinc-800">
+      <CardHeader className="pb-1">
+        <CardTitle className="text-base font-medium text-zinc-200">
+          Weight &amp; Reps over time
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0 pr-2">
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart
+            data={data}
+            margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
 
-      <Card className="border-zinc-800">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-medium text-zinc-200">
-            Total Reps
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-              <XAxis dataKey="date" tickFormatter={formatChartDate} {...axisProps} />
-              <YAxis {...axisProps} width={36} />
-                <Tooltip
-                  {...tooltipProps}
-                  labelFormatter={(v) => formatChartDate(String(v))}
-                  formatter={(val) => [Number(val), "Reps"]}
-                />
-              <Bar dataKey="totalReps" fill={CHART_PRIMARY} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+            {/* X axis */}
+            <XAxis
+              dataKey="date"
+              tickFormatter={formatChartDate}
+              {...axisBase}
+              tick={{ ...axisBase.tick, fill: CHART_AXIS }}
+            />
 
-      {hasWeight && (
-        <Card className="border-zinc-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-zinc-200">
-              Volume (lbs)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-                <XAxis dataKey="date" tickFormatter={formatChartDate} {...axisProps} />
-                <YAxis {...axisProps} width={44} />
-                <Tooltip
-                  {...tooltipProps}
-                  labelFormatter={(v) => formatChartDate(String(v))}
-                  formatter={(val) => [Number(val).toLocaleString(), "Volume"]}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="volume"
-                  stroke={CHART_PRIMARY}
-                  strokeWidth={2}
-                  dot={{ fill: CHART_PRIMARY, r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+            {/* Left axis — weight */}
+            {hasWeight && (
+              <YAxis
+                yAxisId="weight"
+                orientation="left"
+                {...axisBase}
+                tick={{ ...axisBase.tick, fill: CHART_PRIMARY }}
+                width={40}
+                tickFormatter={(v) => `${v}`}
+              />
+            )}
+
+            {/* Right axis — reps */}
+            {hasReps && (
+              <YAxis
+                yAxisId="reps"
+                orientation="right"
+                {...axisBase}
+                tick={{ ...axisBase.tick, fill: CHART_SECONDARY }}
+                width={32}
+                allowDecimals={false}
+              />
+            )}
+
+            <Tooltip
+              {...tooltipProps}
+              labelFormatter={(v) => formatChartDate(String(v))}
+              formatter={(val, name) =>
+                name === "maxWeight"
+                  ? [`${Number(val)} lbs`, "Weight"]
+                  : [Number(val), "Reps"]
+              }
+            />
+
+            <Legend
+              formatter={(value) =>
+                value === "maxWeight" ? "Weight (lbs)" : "Reps"
+              }
+              wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+            />
+
+            {hasWeight && (
+              <Line
+                yAxisId="weight"
+                type="monotone"
+                dataKey="maxWeight"
+                stroke={CHART_PRIMARY}
+                strokeWidth={2}
+                dot={{ fill: CHART_PRIMARY, r: 3 }}
+                activeDot={{ r: 5 }}
+                connectNulls={false}
+              />
+            )}
+
+            {hasReps && (
+              <Line
+                yAxisId="reps"
+                type="monotone"
+                dataKey="totalReps"
+                stroke={CHART_SECONDARY}
+                strokeWidth={2}
+                dot={{ fill: CHART_SECONDARY, r: 3 }}
+                activeDot={{ r: 5 }}
+                connectNulls={false}
+              />
+            )}
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
   );
 }

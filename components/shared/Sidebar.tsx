@@ -2,32 +2,31 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Home,
-  ClipboardList,
-  Calendar,
-  TrendingUp,
-  Video,
-  User,
-} from "lucide-react";
+import { Home, ClipboardList, Calendar, TrendingUp, Video, User, UserCog } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const navItems = [
+const athleteItems = [
   { href: "/dashboard", label: "Home", icon: Home },
   { href: "/log", label: "Log", icon: ClipboardList },
   { href: "/plans", label: "Plans", icon: Calendar },
   { href: "/progress", label: "Progress", icon: TrendingUp },
   { href: "/media", label: "Form Review", icon: Video },
   { href: "/profile", label: "Profile", icon: User },
-] as const;
+];
 
-export function Sidebar() {
+const trainerItems = [
+  { href: "/trainer", label: "Clients", icon: UserCog },
+  { href: "/profile", label: "Profile", icon: User },
+];
+
+export function Sidebar({ isTrainerMode }: { isTrainerMode: boolean }) {
   const pathname = usePathname();
+  const items = isTrainerMode ? trainerItems : athleteItems;
 
   return (
     <aside className="hidden w-56 flex-col border-r bg-background lg:flex">
       <nav className="flex flex-col gap-1 p-4">
-        {navItems.map(({ href, label, icon: Icon }) => {
+        {items.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href || pathname.startsWith(href + "/");
           return (
             <Link

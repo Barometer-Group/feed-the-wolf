@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import type { ProgressRange } from "@/lib/progressRange";
 import type { ExerciseProgressDay, PRRow } from "@/lib/progressTypes";
+import type { CategoryRepsDay } from "@/app/api/progress/category-reps/route";
 
 export interface LoggedExercise {
   id: string;
@@ -123,6 +124,39 @@ export function useWorkoutProgress(range: ProgressRange) {
   return {
     byDate: data?.byDate ?? [],
     weekly: data?.weekly ?? [],
+    isLoading,
+    error,
+    refetch,
+  };
+}
+
+export function useCategoryReps(range: ProgressRange) {
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/progress/category-reps?range=${range}`);
+    if (!res.ok) return { ok: false as const };
+    const json = (await res.json()) as {
+      data?: CategoryRepsDay[];
+      longestStreak?: number;
+      currentStreak?: number;
+    };
+    return {
+      ok: true as const,
+      value: {
+        data: json.data ?? [],
+        longestStreak: json.longestStreak ?? 0,
+        currentStreak: json.currentStreak ?? 0,
+      },
+    };
+  }, [range]);
+
+  const { data, isLoading, error, refetch } = useAsyncProgress(
+    `category-reps-${range}`,
+    load
+  );
+  return {
+    data: data?.data ?? [],
+    longestStreak: data?.longestStreak ?? 0,
+    currentStreak: data?.currentStreak ?? 0,
     isLoading,
     error,
     refetch,

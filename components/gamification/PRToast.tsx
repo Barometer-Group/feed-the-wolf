@@ -1,7 +1,6 @@
 "use client";
 
 import { toast } from "sonner";
-import { triggerConfetti } from "./Confetti";
 
 export function showPRToast(params: {
   exerciseName: string;
@@ -9,7 +8,6 @@ export function showPRToast(params: {
   weightLbs: number;
   reps: number;
 }): void {
-  triggerConfetti("pr");
   const line =
     params.prType === "weight" && params.weightLbs > 0
       ? `${params.exerciseName} — ${params.weightLbs} lbs`

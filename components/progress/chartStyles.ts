@@ -1,6 +1,7 @@
-export const CHART_PRIMARY = "#4FC3F7";
+export const CHART_PRIMARY = "#4FC3F7";   // cyan   — weight
+export const CHART_SECONDARY = "#fb923c"; // orange — reps
 export const CHART_GRID = "#27272a";
-export const CHART_AXIS = "#d4d4d8";
+export const CHART_AXIS = "#71717a";
 export const TOOLTIP_BG = "#1a1a1a";
 
 export const tooltipProps = {

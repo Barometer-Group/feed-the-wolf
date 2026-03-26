@@ -1,31 +1,45 @@
 import { createClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ProfileClient } from "./ProfileClient";
 
 export default async function ProfilePage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data } = await supabase
-    .from("profiles")
-    .select("full_name, avatar_url, role")
-    .eq("id", user.id)
-    .maybeSingle();
+  const [{ data: profile }, { data: trainers }, { data: clients }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, full_name, avatar_url, is_athlete, is_trainer")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("trainer_athletes")
+      .select("id, status, invited_by, trainer:profiles!trainer_athletes_trainer_id_fkey(id, full_name, avatar_url)")
+      .eq("athlete_id", user.id)
+      .order("invited_at", { ascending: false }),
+    supabase
+      .from("trainer_athletes")
+      .select("id, status, invited_by, athlete:profiles!trainer_athletes_athlete_id_fkey(id, full_name, avatar_url)")
+      .eq("trainer_id", user.id)
+      .order("invited_at", { ascending: false }),
+  ]);
 
-  const profile = data as { full_name: string; avatar_url: string | null; role: string } | null;
+  if (!profile) redirect("/login");
+
+  type R = Parameters<typeof ProfileClient>[0];
+  const cookieStore = await cookies();
+  const rawMode = cookieStore.get("active_mode")?.value;
+  const initialMode: "athlete" | "trainer" =
+    rawMode === "trainer" ? "trainer" : "athlete";
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Profile</CardTitle>
-        <p className="text-sm text-muted-foreground capitalize">{profile?.role ?? ""}</p>
-      </CardHeader>
-      <CardContent>
-        <p className="text-muted-foreground">Coming soon</p>
-      </CardContent>
-    </Card>
+    <ProfileClient
+      profile={profile}
+      initialMode={initialMode}
+      trainers={(trainers ?? []) as unknown as R["trainers"]}
+      clients={(clients ?? []) as unknown as R["clients"]}
+    />
   );
 }

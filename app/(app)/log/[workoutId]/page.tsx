@@ -21,6 +21,9 @@ import { MediaUpload } from "@/components/media/MediaUpload";
 import { useWorkout, type AddSetResult } from "@/hooks/useWorkout";
 import { showBadgeToast } from "@/components/gamification/BadgeToast";
 import { showPRToast } from "@/components/gamification/PRToast";
+import { triggerConfetti } from "@/components/gamification/Confetti";
+import { OdometerNumber } from "@/components/shared/OdometerNumber";
+import { DrumInput } from "@/components/shared/DrumInput";
 
 type Exercise = Database["public"]["Tables"]["exercises"]["Row"];
 type ExerciseLog = Database["public"]["Tables"]["exercise_logs"]["Row"];
@@ -324,15 +327,15 @@ function SetupForm({
   onSave: (values: SetValues) => void;
   saving: boolean;
 }) {
-  const [reps, setReps] = useState("");
-  const [weightLbs, setWeightLbs] = useState("");
+  const [reps, setReps] = useState<number>(initial.reps ?? 0);
+  const [weightLbs, setWeightLbs] = useState<number>(initial.weightLbs ?? 0);
   const [durationSeconds, setDurationSeconds] = useState("");
   const [distanceMeters, setDistanceMeters] = useState("");
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
-    setReps(initial.reps != null ? String(initial.reps) : "");
-    setWeightLbs(initial.weightLbs != null ? String(initial.weightLbs) : "");
+    setReps(initial.reps ?? 0);
+    setWeightLbs(initial.weightLbs ?? 0);
     setDurationSeconds(
       initial.durationSeconds != null ? String(initial.durationSeconds) : ""
     );
@@ -344,8 +347,8 @@ function SetupForm({
 
   const save = useCallback(() => {
     onSave({
-      reps: parseNullableInt(reps),
-      weightLbs: parseNullableFloat(weightLbs),
+      reps: reps > 0 ? reps : null,
+      weightLbs: weightLbs > 0 ? weightLbs : null,
       durationSeconds: parseNullableInt(durationSeconds),
       distanceMeters: parseNullableFloat(distanceMeters),
       notes: clampNullString(notes),
@@ -353,34 +356,30 @@ function SetupForm({
   }, [durationSeconds, distanceMeters, notes, onSave, reps, weightLbs]);
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-card/40 p-3">
+    <div className="rounded-xl border border-zinc-800 bg-card/40 p-4">
+      {/* Drum pickers for reps and weight */}
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <DrumInput
+          value={reps}
+          onChange={setReps}
+          label="Reps"
+          min={0}
+          max={200}
+          step={1}
+        />
+        <DrumInput
+          value={weightLbs}
+          onChange={setWeightLbs}
+          label="Weight"
+          unit="lbs"
+          min={0}
+          max={999}
+          step={2.5}
+        />
+      </div>
+
+      {/* Duration / distance as text inputs (less common) */}
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label className="text-xs text-muted-foreground" htmlFor="setup-reps">
-            Reps
-          </Label>
-          <Input
-            id="setup-reps"
-            type="number"
-            inputMode="numeric"
-            value={reps}
-            onChange={(e) => setReps(e.target.value)}
-            className="mt-1 border-zinc-700 bg-zinc-900"
-          />
-        </div>
-        <div>
-          <Label className="text-xs text-muted-foreground" htmlFor="setup-weight">
-            Weight lbs
-          </Label>
-          <Input
-            id="setup-weight"
-            type="number"
-            inputMode="decimal"
-            value={weightLbs}
-            onChange={(e) => setWeightLbs(e.target.value)}
-            className="mt-1 border-zinc-700 bg-zinc-900"
-          />
-        </div>
         <div>
           <Label
             className="text-xs text-muted-foreground"
@@ -414,6 +413,7 @@ function SetupForm({
           />
         </div>
       </div>
+
       <div className="mt-3">
         <Label className="text-xs text-muted-foreground" htmlFor="setup-notes">
           Notes
@@ -1098,6 +1098,7 @@ export default function ActiveWorkoutPage() {
 
   const handleCompleteActiveSet = useCallback(() => {
     if (!activeExerciseId || !activeWorkflow) return;
+    triggerConfetti("badge");
     setActiveExerciseId(activeExerciseId);
     updateWorkflow(activeExerciseId, (w) => ({
       ...w,
@@ -1320,18 +1321,30 @@ export default function ActiveWorkoutPage() {
     if (w.activeStage === 1) {
       const setNumber = w.lastSetNumber ?? (logs.length || 1);
       const draft = w.lastSetDraft;
-      const summaryBits: string[] = [];
-      if (draft.reps != null) summaryBits.push(`${draft.reps} reps`);
-      if (draft.weightLbs != null) summaryBits.push(`@ ${draft.weightLbs} lbs`);
-      const summary = summaryBits.length ? summaryBits.join(" ") : "—";
 
       return (
         <div className="space-y-3">
           <h2 className="text-2xl font-bold text-zinc-100">
             {ex.exercise.name}
           </h2>
-          <div className="text-sm text-zinc-300">
-            Set {setNumber} — {summary}
+          <div className="text-sm text-zinc-300 flex items-baseline gap-1 flex-wrap">
+            <span>Set</span>
+            <OdometerNumber value={setNumber} className="font-semibold text-zinc-100" />
+            <span>—</span>
+            {draft.reps != null && (
+              <>
+                <OdometerNumber value={draft.reps} className="font-semibold text-zinc-100" />
+                <span>reps</span>
+              </>
+            )}
+            {draft.weightLbs != null && (
+              <>
+                <span>@</span>
+                <OdometerNumber value={draft.weightLbs} className="font-semibold text-zinc-100" />
+                <span>lbs</span>
+              </>
+            )}
+            {draft.reps == null && draft.weightLbs == null && <span>—</span>}
           </div>
           <CircleActionButton
             variant="green"
