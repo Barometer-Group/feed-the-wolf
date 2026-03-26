@@ -113,11 +113,20 @@ export function ProfileClient({ profile, initialMode, trainers: initialTrainers,
   const [trainers, setTrainers] = useState(initialTrainers);
   const [clients, setClients] = useState(initialClients);
 
+  function writeModeCookies(mode: "athlete" | "trainer") {
+    const maxAge = 60 * 60 * 24 * 30;
+    document.cookie = `active_mode=${mode}; path=/; max-age=${maxAge}; samesite=lax`;
+    if (mode === "athlete") {
+      document.cookie = "trainer_acting_as=; path=/; max-age=0; samesite=lax";
+    }
+  }
+
   async function saveMode(newMode: "athlete" | "trainer") {
     if (newMode === mode) return;
     const prevMode = mode;
     setSaving(true);
     setMode(newMode);
+    writeModeCookies(newMode);
     try {
       // Only attempt profile capability update when opting into trainer mode
       // for the first time. Switching between modes should rely on mode cookie.
@@ -150,6 +159,7 @@ export function ProfileClient({ profile, initialMode, trainers: initialTrainers,
       window.location.reload();
     } catch (error) {
       setMode(prevMode);
+      writeModeCookies(prevMode);
       toast.error(error instanceof Error ? error.message : "Failed to switch mode");
     } finally {
       setSaving(false);
