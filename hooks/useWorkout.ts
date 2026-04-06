@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/types";
 
@@ -51,7 +51,8 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
   const [loading, setLoading] = useState(true);
   const [startedAt, setStartedAt] = useState<Date | null>(null);
 
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
 
   const fetchWorkout = useCallback(async () => {
     if (!workoutId) return;
@@ -156,7 +157,7 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
 
     setExercises(result);
     setLoading(false);
-  }, [workoutId, supabase]);
+  }, [workoutId]);
 
   useEffect(() => {
     fetchWorkout();
