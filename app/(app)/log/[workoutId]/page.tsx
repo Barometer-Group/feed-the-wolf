@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/types";
 
-import { ChevronRight, Timer } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -382,6 +382,8 @@ export default function ActiveWorkoutPage() {
   const [exerciseStates, setExerciseStates] = useState<Record<string, ExerciseState>>({});
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
   const [doneExerciseIds, setDoneExerciseIds] = useState<string[]>([]);
+  // Exercises stopped before completion get a red outline in the done list
+  const [incompleteExerciseIds, setIncompleteExerciseIds] = useState<Set<string>>(new Set());
   const [expandedDoneId, setExpandedDoneId] = useState<string | null>(null);
   const [restEditMode, setRestEditMode] = useState<"last" | "next" | null>(null);
   const [endingSet, setEndingSet] = useState(false);
@@ -472,11 +474,11 @@ export default function ActiveWorkoutPage() {
     }
 
     if (state.stage === "intense" && elapsedSecs >= state.hiitIntenseSecs) {
+      const cyclesCompleted = state.hiitCyclesCompleted + 1;
+      const lastCycle = cyclesCompleted >= state.hiitCycles;
       setExerciseStates((prev) => {
         const s = prev[activeExerciseId];
         if (!s || s.stage !== "intense") return prev;
-        const cyclesCompleted = s.hiitCyclesCompleted + 1;
-        const lastCycle = cyclesCompleted >= s.hiitCycles;
         return {
           ...prev,
           [activeExerciseId]: {
@@ -487,11 +489,19 @@ export default function ActiveWorkoutPage() {
           },
         };
       });
-      if (
-        exerciseStates[activeExerciseId]?.hiitCyclesCompleted + 1 >=
-        exerciseStates[activeExerciseId]?.hiitCycles
-      ) {
+      if (lastCycle) {
         triggerConfetti("pr");
+        const elapsed = state.cardioSessionStartedAt
+          ? Math.floor((Date.now() - state.cardioSessionStartedAt) / 1000)
+          : 0;
+        const notes = state.timedNotes
+          ? `${cyclesCompleted} of ${state.hiitCycles} cycles — ${state.timedNotes}`
+          : `${cyclesCompleted} of ${state.hiitCycles} cycles`;
+        void addSet(activeExerciseId, { ...emptySetValues(), durationSeconds: elapsed, notes }, "manual");
+        setDoneExerciseIds((prev) =>
+          prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
+        );
+        setActiveExerciseId(null);
       }
     }
 
@@ -523,6 +533,15 @@ export default function ActiveWorkoutPage() {
           return { ...prev, [activeExerciseId]: { ...s, stage: "celebrate" } };
         });
         triggerConfetti("pr");
+        void addSet(
+          activeExerciseId,
+          { ...emptySetValues(), durationSeconds: totalSecs, notes: state.timedNotes || null },
+          "manual"
+        );
+        setDoneExerciseIds((prev) =>
+          prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
+        );
+        setActiveExerciseId(null);
       }
     }
 
@@ -684,21 +703,26 @@ export default function ActiveWorkoutPage() {
   }, [activeExerciseId, updateState]);
 
   /** Timed: tap button during countdown = early stop, still celebrate */
-  const handleTimedStop = useCallback(async () => {
+  const handleTimedStop = useCallback(() => {
     if (!activeExerciseId) return;
     const state = exerciseStates[activeExerciseId];
     if (!state) return;
-    const elapsed =
-      state.cardioSessionStartedAt
-        ? Math.floor((Date.now() - state.cardioSessionStartedAt) / 1000)
-        : 0;
-    await addSet(
+    const elapsed = state.cardioSessionStartedAt
+      ? Math.floor((Date.now() - state.cardioSessionStartedAt) / 1000)
+      : 0;
+    // Update UI immediately — no waiting for DB
+    triggerConfetti("pr");
+    updateState(activeExerciseId, (s) => ({ ...s, stage: "celebrate" }));
+    setDoneExerciseIds((prev) =>
+      prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
+    );
+    setActiveExerciseId(null);
+    // Fire DB write in background
+    void addSet(
       activeExerciseId,
       { ...emptySetValues(), durationSeconds: elapsed, notes: state.timedNotes || null },
       "manual"
     );
-    triggerConfetti("pr");
-    updateState(activeExerciseId, (s) => ({ ...s, stage: "celebrate" }));
   }, [activeExerciseId, exerciseStates, addSet, updateState]);
 
   /** HIIT: begin → 10s pre-start countdown */
@@ -715,26 +739,20 @@ export default function ActiveWorkoutPage() {
   }, [activeExerciseId, updateState]);
 
   /** HIIT: stop at any phase — log what was done, no celebration */
-  const handleHiitStop = useCallback(async () => {
+  const handleHiitStop = useCallback(() => {
     if (!activeExerciseId) return;
     const state = exerciseStates[activeExerciseId];
     if (!state) return;
-    const elapsed =
-      state.cardioSessionStartedAt
-        ? Math.floor((Date.now() - state.cardioSessionStartedAt) / 1000)
-        : 0;
-    const cycleInfo = `${state.hiitCyclesCompleted} of ${state.hiitCycles} cycles completed`;
-    await addSet(
-      activeExerciseId,
-      {
-        ...emptySetValues(),
-        durationSeconds: elapsed,
-        notes: state.timedNotes
-          ? `${cycleInfo} — ${state.timedNotes}`
-          : cycleInfo,
-      },
-      "manual"
+    const elapsed = state.cardioSessionStartedAt
+      ? Math.floor((Date.now() - state.cardioSessionStartedAt) / 1000)
+      : 0;
+    const cycleInfo = `${state.hiitCyclesCompleted} of ${state.hiitCycles} cycles`;
+    // Update UI immediately
+    setDoneExerciseIds((prev) =>
+      prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
     );
+    setIncompleteExerciseIds((prev) => new Set([...prev, activeExerciseId]));
+    setActiveExerciseId(null);
     updateState(activeExerciseId, (s) => ({
       ...s,
       stage: "setup",
@@ -743,6 +761,16 @@ export default function ActiveWorkoutPage() {
       hiitCyclesCompleted: 0,
       cardioSessionStartedAt: null,
     }));
+    // Fire DB write in background
+    void addSet(
+      activeExerciseId,
+      {
+        ...emptySetValues(),
+        durationSeconds: elapsed,
+        notes: state.timedNotes ? `${cycleInfo} — ${state.timedNotes}` : cycleInfo,
+      },
+      "manual"
+    );
   }, [activeExerciseId, exerciseStates, addSet, updateState]);
 
   // ── Move on / finish ───────────────────────────────────────────────────────
@@ -855,29 +883,12 @@ export default function ActiveWorkoutPage() {
 
   // ── Render helpers ─────────────────────────────────────────────────────────
 
-  const renderHeader = (exercise: Exercise, logs: ExerciseLog[]) => {
-    const state = exerciseStates[exercise.id];
-    const exTimer =
-      state?.exerciseStartedAt
-        ? formatSecs(Math.floor((now - state.exerciseStartedAt) / 1000))
-        : null;
-    return (
-      <div className="space-y-1">
-        <h2 className="truncate text-2xl font-bold text-zinc-100">{exercise.name}</h2>
-        {(logs.length > 0 || exTimer) && (
-          <div className="flex flex-wrap items-center gap-3">
-            {logs.length > 0 && <DotsIndicator count={logs.length} />}
-            {exTimer && (
-              <span className="flex items-center gap-1 text-xs text-zinc-500">
-                <Timer className="h-3 w-3" />
-                {exTimer}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
+  const renderHeader = (exercise: Exercise, logs: ExerciseLog[]) => (
+    <div className="space-y-1">
+      <h2 className="truncate text-2xl font-bold text-zinc-100">{exercise.name}</h2>
+      {logs.length > 0 && <DotsIndicator count={logs.length} />}
+    </div>
+  );
 
   const renderSetLog = (logs: ExerciseLog[]) =>
     logs.length > 0 ? (
@@ -910,20 +921,27 @@ export default function ActiveWorkoutPage() {
       );
     }
 
-    // Setup
+    // Setup — first set shows drums; subsequent sets show values as hint only
     if (stage === "setup") {
+      const isFirstSet = logs.length === 0;
+      const repHint = setupValues.reps != null ? `${setupValues.reps} reps` : null;
+      const weightHint = setupValues.weightLbs != null ? `@ ${setupValues.weightLbs} lbs` : null;
+      const hint = [repHint, weightHint].filter(Boolean).join(" ");
+
       return (
         <div className="space-y-4">
           {renderHeader(exercise, logs)}
-          {logs.length > 0 && (
-            <div className="text-center text-sm text-zinc-500">
-              Set {logs.length + 1}
+          {!isFirstSet && hint && (
+            <div className="text-center text-sm text-zinc-400">
+              Set {logs.length + 1} — {hint}
             </div>
           )}
-          <SetupDrums
-            values={setupValues}
-            onChange={(v) => updateState(exercise.id, (s) => ({ ...s, setupValues: v }))}
-          />
+          {isFirstSet ? (
+            <SetupDrums
+              values={setupValues}
+              onChange={(v) => updateState(exercise.id, (s) => ({ ...s, setupValues: v }))}
+            />
+          ) : null}
           <CircleButton
             color="green"
             message={activeState.beginMessage}
@@ -1351,15 +1369,24 @@ export default function ActiveWorkoutPage() {
           const ex = exercisesInWorkout.find((e) => e.exercise.id === id);
           if (!ex) return null;
           const expanded = expandedDoneId === id;
+          const incomplete = incompleteExerciseIds.has(id);
           return (
             <div key={id}>
               <button
                 type="button"
-                className="flex w-full items-center justify-between rounded-full border border-green-500/30 bg-green-600/15 px-4 py-3 text-zinc-100 active:bg-green-600/25"
+                className={[
+                  "flex w-full items-center justify-between rounded-full border px-4 py-3 text-zinc-100",
+                  incomplete
+                    ? "border-red-500/40 bg-red-900/15 active:bg-red-900/25"
+                    : "border-green-500/30 bg-green-600/15 active:bg-green-600/25",
+                ].join(" ")}
                 onClick={() => setExpandedDoneId((prev) => (prev === id ? null : id))}
               >
                 <span className="min-w-0 truncate text-sm font-semibold">
                   {ex.exercise.name}
+                  {incomplete && (
+                    <span className="ml-2 text-xs font-normal text-red-400">stopped early</span>
+                  )}
                 </span>
                 <div className="flex shrink-0 items-center gap-2">
                   <DotsIndicator count={ex.logs.length} />
