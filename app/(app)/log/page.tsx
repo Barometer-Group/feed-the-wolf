@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { StartWorkoutClient } from "./StartWorkoutClient";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default async function LogPage() {
   const supabase = await createClient();
@@ -107,11 +109,18 @@ export default async function LogPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Log Workout</h1>
-      <StartWorkoutClient
-        athleteId={user.id}
-        recentWorkouts={recentWithMeta}
-        assignedPlans={assignedWithMeta}
-      />
+      <Suspense fallback={
+        <div className="space-y-4">
+          <Skeleton className="h-32 w-full rounded-xl bg-zinc-800" />
+          <Skeleton className="h-32 w-full rounded-xl bg-zinc-800" />
+        </div>
+      }>
+        <StartWorkoutClient
+          athleteId={user.id}
+          recentWorkouts={recentWithMeta}
+          assignedPlans={assignedWithMeta}
+        />
+      </Suspense>
     </div>
   );
 }
