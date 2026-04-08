@@ -1,431 +1,1852 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/types";
+import type { MediaListItem } from "@/lib/mediaTypes";
 
-import { Plus, Timer } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+
+import { Plus, ChevronRight, Video } from "lucide-react";
 import { WorkoutSummary } from "@/components/workout/WorkoutSummary";
 import { ExerciseSearchSheet } from "@/components/workout/ExerciseSearchSheet";
-import { useWorkout } from "@/hooks/useWorkout";
+import { MediaUpload } from "@/components/media/MediaUpload";
+import { useWorkout, type AddSetResult } from "@/hooks/useWorkout";
 import { showBadgeToast } from "@/components/gamification/BadgeToast";
 import { showPRToast } from "@/components/gamification/PRToast";
 import { triggerConfetti } from "@/components/gamification/Confetti";
+import { OdometerNumber } from "@/components/shared/OdometerNumber";
+import { DrumInput } from "@/components/shared/DrumInput";
 
 type Exercise = Database["public"]["Tables"]["exercises"]["Row"];
 type ExerciseLog = Database["public"]["Tables"]["exercise_logs"]["Row"];
 
-type ExerciseUIState = {
-  reps: string;
-  weight: string;
-  /** unix ms when rest ends, null = not resting */
-  restEndsAt: number | null;
-  savingSet: boolean;
+type SetValues = {
+  reps: number | null;
+  weightLbs: number | null;
+  durationSeconds: number | null;
+  distanceMeters: number | null;
+  notes: string | null;
 };
 
-function emptyUIState(): ExerciseUIState {
-  return { reps: "", weight: "", restEndsAt: null, savingSet: false };
-}
+type RestInlineEditKind = "last" | "next" | null;
 
-function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+type ExerciseWorkflowMode = "active" | "collapsed";
+
+type ActiveStage = 0 | 1 | 2 | 3 | 5 | 4; // 5 = ready for next set (3B), 4 = move-on confirmation
+
+/** Per-exercise workout UI state (active / collapsed + stage machine). */
+type ExerciseWorkflowState = {
+  mode: ExerciseWorkflowMode;
+  activeStage: ActiveStage;
+  cameFromRest: boolean;
+
+  setupDraft: SetValues;
+  nextDraft: SetValues;
+  lastSetDraft: SetValues;
+  lastSetLogId: string | null;
+  lastSetNumber: number | null;
+
+  startMessage: string;
+  activeMessage: string;
+  restMessage: string;
+  /** True only after red END SET → rest screen; cleared only on save or repeat (not on timer done). */
+  showCelebration: boolean;
+
+  state4EditMode: boolean;
+};
+
+const START_MESSAGES = [
+  "LETS GO!",
+  "Time to Hunt 🐺",
+  "No Excuses",
+  "Attack!",
+  "Do It.",
+  "Feed the Wolf 🐺",
+  "Hunt.",
+] as const;
+
+const ACTIVE_MESSAGES = [
+  "mama!!!!",
+  "oh no, here we go...",
+  "don't you dare stop",
+  "the wolf is watching 🐺",
+  "BREATHE!",
+  "you got this... maybe",
+  "almost there... probably",
+  "RAHHHHH",
+] as const;
+
+const REST_MESSAGES = [
+  "Good work!!! Fistbump! 🤜",
+  "The wolf approves 🐺",
+  "Earning it.",
+  "That's what I'm talking about",
+  "YES. 🐺",
+  "Get some rest, hunter"
+] as const;
+
+const NEXT_REPEAT_FIRST = "Sir, Can I Have Another";
+const NEXT_REPEAT_SUBSEQUENT = ["One More for the Wolf 🐺", "Again.", "Let's go again"] as const;
+
+function pickRandomMessage(list: readonly string[]): string {
+  return list[Math.floor(Math.random() * list.length)];
 }
 
 function formatSetLine(log: ExerciseLog): string {
   const parts: string[] = [];
   if (log.reps != null) parts.push(`${log.reps} reps`);
   if (log.weight_lbs != null) parts.push(`@ ${Number(log.weight_lbs)} lbs`);
+  if (log.duration_seconds != null && log.reps == null && log.weight_lbs == null) {
+    parts.push(`${log.duration_seconds}s`);
+  } else if (log.duration_seconds != null && (log.reps != null || log.weight_lbs != null)) {
+    parts.push(`${log.duration_seconds}s`);
+  }
+  if (log.distance_meters != null) {
+    parts.push(`${Number(log.distance_meters)}m`);
+  }
   return parts.length ? parts.join(" ") : "—";
 }
 
-function playBeep() {
+function SetsDotsIndicator({ count }: { count: number }) {
+  const maxDots = 10;
+  const dots = Math.min(count, maxDots);
+  const extra = count - maxDots;
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-sm text-zinc-400">Sets</span>
+      <div className="flex items-center gap-1">
+        {Array.from({ length: dots }).map((_, idx) => (
+          <div
+            key={idx}
+            className="h-3 w-3 rounded-full"
+            style={{ backgroundColor: "#22c55e" }}
+          />
+        ))}
+        {extra > 0 ? (
+          <span className="text-xs text-zinc-500">+{extra}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function DotsOnlyIndicator({ count }: { count: number }) {
+  const maxDots = 10;
+  const dots = Math.min(count, maxDots);
+  const extra = count - maxDots;
+
+  return (
+    <div className="flex items-center gap-1">
+      {Array.from({ length: dots }).map((_, idx) => (
+        <div
+          key={idx}
+          className="h-3 w-3 rounded-full"
+          style={{ backgroundColor: "#22c55e" }}
+        />
+      ))}
+      {extra > 0 ? (
+        <span className="text-xs text-zinc-500">+{extra}</span>
+      ) : null}
+    </div>
+  );
+}
+
+function renderSetReadOnlyList(logs: ExerciseLog[]) {
+  return (
+    <div className="space-y-2">
+      {logs.map((log) => (
+        <div
+          key={log.id}
+          className="rounded-lg border border-zinc-800 bg-card/40 p-3 text-sm text-zinc-100"
+        >
+          Set {log.set_number} — {formatSetLine(log)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function emptySetValues(): SetValues {
+  return {
+    reps: null,
+    weightLbs: null,
+    durationSeconds: null,
+    distanceMeters: null,
+    notes: null,
+  };
+}
+
+function clampNullString(s: string): string | null {
+  const v = s.trim();
+  return v.length ? v : null;
+}
+
+function parseNullableInt(s: string): number | null {
+  const v = s.trim();
+  if (!v) return null;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseNullableFloat(s: string): number | null {
+  const v = s.trim();
+  if (!v) return null;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function playBeepOnce(ref: { current: boolean }): void {
+  if (ref.current) return;
+  ref.current = true;
   try {
-    const AudioCtor =
+    const AudioContextCtor =
       window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioCtor();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 440;
-    osc.type = "sine";
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.2);
+      (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    const audioContext = new AudioContextCtor();
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.frequency.value = 440;
+    oscillator.type = "sine";
+    gain.gain.setValueAtTime(0.2, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(
+      0.01,
+      audioContext.currentTime + 0.2
+    );
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.2);
   } catch {
-    /* ignore */
+    // Ignore if Web Audio fails.
   }
 }
 
-const REST_SECONDS = 60;
+function RestCountdown({
+  initialSeconds,
+  onDone,
+  onSkip,
+  className,
+}: {
+  initialSeconds: number;
+  onDone: () => void;
+  onSkip: () => void;
+  className?: string;
+}) {
+  const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
+  const intervalRef = useRef<number | null>(null);
+  const beepPlayedRef = useRef(false);
+  const onDoneRef = useRef(onDone);
+  const onSkipRef = useRef(onSkip);
+
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  }, [onDone]);
+
+  useEffect(() => {
+    onSkipRef.current = onSkip;
+  }, [onSkip]);
+
+  useEffect(() => {
+    setSecondsLeft(initialSeconds);
+    beepPlayedRef.current = false;
+
+    if (intervalRef.current != null) {
+      window.clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    const id = window.setInterval(() => {
+      setSecondsLeft((prev) => {
+        const next = prev - 1;
+        if (next <= 0) {
+          window.clearInterval(id);
+          intervalRef.current = null;
+          playBeepOnce(beepPlayedRef);
+          onDoneRef.current();
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+
+    intervalRef.current = id;
+    return () => {
+      if (intervalRef.current != null) {
+        window.clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [initialSeconds]);
+
+  const m = Math.floor(secondsLeft / 60);
+  const s = secondsLeft % 60;
+  const display = `${m}:${s.toString().padStart(2, "0")}`;
+
+  const skip = useCallback(() => {
+    if (intervalRef.current != null) {
+      window.clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    onSkipRef.current();
+  }, []);
+
+  return (
+    <div
+      className={`flex flex-col items-center gap-2 rounded-xl border bg-card/50 p-4 ${className ?? ""}`}
+    >
+      <div className="text-5xl font-bold tabular-nums">{display}</div>
+      <button
+        type="button"
+        onClick={skip}
+        className="min-h-[44px] min-w-[44px] px-2 py-1 text-sm text-muted-foreground underline underline-offset-2"
+      >
+        Skip
+      </button>
+    </div>
+  );
+}
+
+function SetupForm({
+  initial,
+  onCancel,
+  onSave,
+  saving,
+}: {
+  initial: SetValues;
+  onCancel: () => void;
+  onSave: (values: SetValues) => void;
+  saving: boolean;
+}) {
+  const [reps, setReps] = useState<number>(initial.reps ?? 0);
+  const [weightLbs, setWeightLbs] = useState<number>(initial.weightLbs ?? 0);
+  const [durationSeconds, setDurationSeconds] = useState("");
+  const [distanceMeters, setDistanceMeters] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    setReps(initial.reps ?? 0);
+    setWeightLbs(initial.weightLbs ?? 0);
+    setDurationSeconds(
+      initial.durationSeconds != null ? String(initial.durationSeconds) : ""
+    );
+    setDistanceMeters(
+      initial.distanceMeters != null ? String(initial.distanceMeters) : ""
+    );
+    setNotes(initial.notes ?? "");
+  }, [initial]);
+
+  const save = useCallback(() => {
+    onSave({
+      reps: reps > 0 ? reps : null,
+      weightLbs: weightLbs > 0 ? weightLbs : null,
+      durationSeconds: parseNullableInt(durationSeconds),
+      distanceMeters: parseNullableFloat(distanceMeters),
+      notes: clampNullString(notes),
+    });
+  }, [durationSeconds, distanceMeters, notes, onSave, reps, weightLbs]);
+
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-card/40 p-4">
+      {/* Drum pickers for reps and weight */}
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <DrumInput
+          value={reps}
+          onChange={setReps}
+          label="Reps"
+          min={0}
+          max={200}
+          step={1}
+        />
+        <DrumInput
+          value={weightLbs}
+          onChange={setWeightLbs}
+          label="Weight"
+          unit="lbs"
+          min={0}
+          max={999}
+          step={2.5}
+        />
+      </div>
+
+      {/* Duration / distance as text inputs (less common) */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label
+            className="text-xs text-muted-foreground"
+            htmlFor="setup-duration"
+          >
+            Duration sec
+          </Label>
+          <Input
+            id="setup-duration"
+            type="number"
+            inputMode="numeric"
+            value={durationSeconds}
+            onChange={(e) => setDurationSeconds(e.target.value)}
+            className="mt-1 border-zinc-700 bg-zinc-900"
+          />
+        </div>
+        <div>
+          <Label
+            className="text-xs text-muted-foreground"
+            htmlFor="setup-distance"
+          >
+            Distance m
+          </Label>
+          <Input
+            id="setup-distance"
+            type="number"
+            inputMode="decimal"
+            value={distanceMeters}
+            onChange={(e) => setDistanceMeters(e.target.value)}
+            className="mt-1 border-zinc-700 bg-zinc-900"
+          />
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <Label className="text-xs text-muted-foreground" htmlFor="setup-notes">
+          Notes
+        </Label>
+        <Input
+          id="setup-notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional"
+          className="mt-1 border-zinc-700 bg-zinc-900"
+        />
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          className="min-h-[44px] flex-1 border-zinc-700"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="min-h-[44px] flex-1"
+        >
+          {saving ? "Saving..." : "Save Set"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SimpleEditForm({
+  title,
+  initial,
+  onCancel,
+  onSave,
+  saving,
+}: {
+  title: string;
+  initial: { reps: number | null; weightLbs: number | null; notes: string | null };
+  onCancel: () => void;
+  onSave: (values: { reps: number | null; weightLbs: number | null; notes: string | null }) => void;
+  saving: boolean;
+}) {
+  const [reps, setReps] = useState("");
+  const [weightLbs, setWeightLbs] = useState("");
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    setReps(initial.reps != null ? String(initial.reps) : "");
+    setWeightLbs(initial.weightLbs != null ? String(initial.weightLbs) : "");
+    setNotes(initial.notes ?? "");
+  }, [initial.notes, initial.reps, initial.weightLbs]);
+
+  const save = useCallback(() => {
+    onSave({
+      reps: parseNullableInt(reps),
+      weightLbs: parseNullableFloat(weightLbs),
+      notes: clampNullString(notes),
+    });
+  }, [notes, onSave, reps, weightLbs]);
+
+  return (
+    <div className="rounded-xl border border-zinc-700 bg-card p-3">
+      <div className="mb-2 text-sm font-medium text-zinc-100">{title}</div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs text-muted-foreground" htmlFor="simple-reps">
+            Reps
+          </Label>
+          <Input
+            id="simple-reps"
+            type="number"
+            inputMode="numeric"
+            value={reps}
+            onChange={(e) => setReps(e.target.value)}
+            className="mt-1 border-zinc-700 bg-zinc-900"
+          />
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground" htmlFor="simple-weight">
+            Weight lbs
+          </Label>
+          <Input
+            id="simple-weight"
+            type="number"
+            inputMode="decimal"
+            value={weightLbs}
+            onChange={(e) => setWeightLbs(e.target.value)}
+            className="mt-1 border-zinc-700 bg-zinc-900"
+          />
+        </div>
+      </div>
+      <div className="mt-3">
+        <Label className="text-xs text-muted-foreground" htmlFor="simple-notes">
+          Notes
+        </Label>
+        <Input
+          id="simple-notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional"
+          className="mt-1 border-zinc-700 bg-zinc-900"
+        />
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          className="min-h-[44px] flex-1 border-zinc-700"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="min-h-[44px] flex-1"
+        >
+          {saving ? "Saving..." : "Save"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function EditableSetRowFull({
+  log,
+  onUpdate,
+}: {
+  log: ExerciseLog;
+  onUpdate: (payload: SetValues) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [reps, setReps] = useState("");
+  const [weightLbs, setWeightLbs] = useState("");
+  const [durationSeconds, setDurationSeconds] = useState("");
+  const [distanceMeters, setDistanceMeters] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!editing) return;
+    setReps(log.reps != null ? String(log.reps) : "");
+    setWeightLbs(log.weight_lbs != null ? String(Number(log.weight_lbs)) : "");
+    setDurationSeconds(
+      log.duration_seconds != null ? String(log.duration_seconds) : ""
+    );
+    setDistanceMeters(
+      log.distance_meters != null ? String(Number(log.distance_meters)) : ""
+    );
+    setNotes(log.notes ?? "");
+  }, [
+    editing,
+    log.duration_seconds,
+    log.distance_meters,
+    log.id,
+    log.notes,
+    log.reps,
+    log.weight_lbs,
+  ]);
+
+  const cancel = useCallback(() => {
+    setEditing(false);
+  }, []);
+
+  const save = useCallback(async () => {
+    setSaving(true);
+    try {
+      await onUpdate({
+        reps: parseNullableInt(reps),
+        weightLbs: parseNullableFloat(weightLbs),
+        durationSeconds: parseNullableInt(durationSeconds),
+        distanceMeters: parseNullableFloat(distanceMeters),
+        notes: clampNullString(notes),
+      });
+      setEditing(false);
+    } catch {
+      toast.error("Failed to save set");
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    durationSeconds,
+    distanceMeters,
+    notes,
+    onUpdate,
+    reps,
+    weightLbs,
+  ]);
+
+  if (!editing) {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setEditing(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") setEditing(true);
+        }}
+        className="min-h-[44px] cursor-pointer rounded-lg border border-zinc-800 bg-card p-3 active:bg-accent"
+      >
+        <div className="text-sm font-medium text-zinc-100">
+          Set {log.set_number} — {formatSetLine(log)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-700 bg-card p-3">
+      <div className="mb-2 text-xs font-medium text-muted-foreground">
+        Edit set {log.set_number}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs text-muted-foreground" htmlFor={`er-${log.id}`}>
+            Reps
+          </Label>
+          <Input
+            id={`er-${log.id}`}
+            type="number"
+            inputMode="numeric"
+            value={reps}
+            onChange={(e) => setReps(e.target.value)}
+            className="mt-1 border-zinc-700 bg-zinc-900"
+          />
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground" htmlFor={`ew-${log.id}`}>
+            Weight lbs
+          </Label>
+          <Input
+            id={`ew-${log.id}`}
+            type="number"
+            inputMode="decimal"
+            value={weightLbs}
+            onChange={(e) => setWeightLbs(e.target.value)}
+            className="mt-1 border-zinc-700 bg-zinc-900"
+          />
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground" htmlFor={`ed-${log.id}`}>
+            Duration sec
+          </Label>
+          <Input
+            id={`ed-${log.id}`}
+            type="number"
+            inputMode="numeric"
+            value={durationSeconds}
+            onChange={(e) => setDurationSeconds(e.target.value)}
+            className="mt-1 border-zinc-700 bg-zinc-900"
+          />
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground" htmlFor={`ei-${log.id}`}>
+            Distance m
+          </Label>
+          <Input
+            id={`ei-${log.id}`}
+            type="number"
+            inputMode="decimal"
+            value={distanceMeters}
+            onChange={(e) => setDistanceMeters(e.target.value)}
+            className="mt-1 border-zinc-700 bg-zinc-900"
+          />
+        </div>
+      </div>
+      <div className="mt-3">
+        <Label className="text-xs text-muted-foreground" htmlFor={`en-${log.id}`}>
+          Notes
+        </Label>
+        <Input
+          id={`en-${log.id}`}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          className="mt-1 border-zinc-700 bg-zinc-900"
+        />
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={cancel}
+          className="min-h-[44px] flex-1 border-zinc-700"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="min-h-[44px] flex-1"
+        >
+          {saving ? "Saving..." : "Save"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CircleActionButton({
+  variant,
+  message,
+  onClick,
+  disabled,
+}: {
+  variant: "green" | "red";
+  message: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  const bg = variant === "green" ? "bg-green-500" : "bg-red-500";
+  const hover = variant === "green" ? "hover:bg-green-400" : "hover:bg-red-400";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        "mx-auto flex h-[220px] w-[220px] items-center justify-center rounded-full",
+        "min-h-[200px] min-w-[200px] border border-black/10",
+        bg,
+        hover,
+        "px-4 text-center text-white shadow-lg active:translate-y-px",
+        disabled ? "opacity-50 cursor-not-allowed" : "",
+      ].join(" ")}
+    >
+      <div className="text-center text-lg font-extrabold leading-tight">
+        {message}
+      </div>
+    </button>
+  );
+}
 
 export default function ActiveWorkoutPage() {
   const params = useParams();
+  const workoutId = params.workoutId as string;
   const router = useRouter();
-  const workoutId = params?.workoutId as string | undefined;
-
-  const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
 
   const [athleteId, setAthleteId] = useState<string | null>(null);
-  const [exerciseLibrary, setExerciseLibrary] = useState<Exercise[]>([]);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [workoutName, setWorkoutName] = useState("");
+
+  const [showExerciseSearch, setShowExerciseSearch] = useState(false);
+  const [showFinishConfirm, setShowFinishConfirm] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+
+  const supabase = useMemo(() => createClient(), []);
+
+  const [dismissedExerciseIds, setDismissedExerciseIds] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  const [pillExpandedExerciseId, setPillExpandedExerciseId] = useState<string | null>(null);
+
+  const [workflowByExerciseId, setWorkflowByExerciseId] = useState<
+    Record<string, ExerciseWorkflowState>
+  >({});
+
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
-  const [exerciseUIStates, setExerciseUIStates] = useState<Record<string, ExerciseUIState>>({});
-  const [now, setNow] = useState(Date.now());
+
+  const [exerciseLibrary, setExerciseLibrary] = useState<Exercise[]>([]);
+
+  const [workoutMedia, setWorkoutMedia] = useState<MediaListItem[]>([]);
+
+  const [restInlineEditKind, setRestInlineEditKind] = useState<RestInlineEditKind>(null);
+  const [editingLastSaving, setEditingLastSaving] = useState(false);
+  const [editingNextSaving, setEditingNextSaving] = useState(false);
+
+  const [setupSaving, setSetupSaving] = useState(false);
+
   const prToastKeysRef = useRef<Set<string>>(new Set());
 
-  const { workout, exercises, loading, startedAt, addExercise, addSet, completeWorkout } =
-    useWorkout(workoutId ?? null, athleteId ?? "");
+  const {
+    workout,
+    exercises: exercisesInWorkout,
+    loading,
+    startedAt,
+    addExercise,
+    addSet,
+    completeWorkout,
+    refetch,
+  } = useWorkout(workoutId, athleteId ?? "");
 
-  // Auth
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) setAthleteId(user.id);
     });
   }, [supabase]);
 
-  // Exercise library
   useEffect(() => {
     supabase
       .from("exercises")
       .select("id, name, category")
-      .then(({ data }) => setExerciseLibrary((data ?? []) as Exercise[]));
+      .then(({ data }) => {
+        setExerciseLibrary((data ?? []) as Exercise[]);
+      });
   }, [supabase]);
 
-  // Clock + rest timer cleanup
   useEffect(() => {
-    const id = setInterval(() => {
-      const nowMs = Date.now();
-      setNow(nowMs);
-      setExerciseUIStates((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        for (const eid of Object.keys(next)) {
-          const s = next[eid];
-          if (s.restEndsAt != null && nowMs >= s.restEndsAt) {
-            next[eid] = { ...s, restEndsAt: null };
-            changed = true;
-            playBeep();
-          }
+    if (!workout || !startedAt) return;
+    if (!workoutName && startedAt) {
+      const d = new Date(startedAt);
+      setWorkoutName(`Ad Hoc Workout ${d.toLocaleDateString()}`);
+    }
+  }, [startedAt, workout, workoutName]);
+
+  useEffect(() => {
+    if (loading) return;
+    const currentExercises = exercisesInWorkout.map((e) => e.exercise.id);
+
+    setWorkflowByExerciseId((prev: Record<string, ExerciseWorkflowState>) => {
+      const nextMap: Record<string, ExerciseWorkflowState> = Object.assign(
+        {},
+        prev
+      );
+      for (const exId of currentExercises) {
+        if (nextMap[exId]) continue;
+        const ex = exercisesInWorkout.find((x) => x.exercise.id === exId);
+        const logs = ex?.logs ?? [];
+        const last = logs[logs.length - 1];
+        const lastDraft: SetValues = last
+          ? {
+              reps: last.reps,
+              weightLbs: last.weight_lbs != null ? Number(last.weight_lbs) : null,
+              durationSeconds: last.duration_seconds,
+              distanceMeters: last.distance_meters != null ? Number(last.distance_meters) : null,
+              notes: last.notes,
+            }
+          : emptySetValues();
+        nextMap[exId] = {
+          mode: "active",
+          activeStage: 0,
+          cameFromRest: false,
+          setupDraft: lastDraft,
+          nextDraft: lastDraft,
+          lastSetDraft: lastDraft,
+          lastSetLogId: last ? last.id : null,
+          lastSetNumber: last ? last.set_number : null,
+          startMessage: pickRandomMessage(START_MESSAGES),
+          activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
+          restMessage: '',
+          showCelebration: false,
+          state4EditMode: false,
+        } satisfies ExerciseWorkflowState;
+      }
+
+      for (const existingId of Object.keys(nextMap)) {
+        if (!currentExercises.includes(existingId)) {
+          delete nextMap[existingId];
         }
-        return changed ? next : prev;
+      }
+
+      return nextMap;
+    });
+  }, [exercisesInWorkout, loading]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (activeExerciseId && dismissedExerciseIds.has(activeExerciseId)) {
+      setActiveExerciseId(null);
+    }
+    if (
+      activeExerciseId &&
+      workflowByExerciseId[activeExerciseId]?.mode === "collapsed"
+    ) {
+      setActiveExerciseId(null);
+    }
+
+    const hasCollapsedPills = exercisesInWorkout.some(
+      (e) =>
+        e.logs.length > 0 &&
+        workflowByExerciseId[e.exercise.id]?.mode === "collapsed"
+    );
+    if (hasCollapsedPills) return;
+
+    if (activeExerciseId) return;
+    const next = exercisesInWorkout.find((e) => {
+      const id = e.exercise.id;
+      return !dismissedExerciseIds.has(id) && workflowByExerciseId[id]?.mode !== "collapsed";
+    });
+    setActiveExerciseId(next?.exercise.id ?? null);
+  }, [activeExerciseId, dismissedExerciseIds, exercisesInWorkout, loading, workflowByExerciseId]);
+
+  const refreshWorkoutMedia = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/media?workout_log_id=${encodeURIComponent(workoutId)}`
+      );
+      const json = (await res.json()) as { items?: MediaListItem[] };
+      setWorkoutMedia(json.items ?? []);
+    } catch {
+      toast.error("Failed to load media");
+    }
+  }, [workoutId]);
+
+  useEffect(() => {
+    if (!workout || workout.completed_at) return;
+    void refreshWorkoutMedia();
+  }, [refreshWorkoutMedia, workout]);
+
+  const elapsed = useMemo(() => {
+    if (!startedAt) return { m: 0, s: 0, display: "0:00" };
+    const ms = Date.now() - startedAt.getTime();
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return { m, s, display: `${m}:${s.toString().padStart(2, "0")}` };
+  }, [startedAt]);
+
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => {
+    if (!startedAt) return;
+    const id = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt.getTime()) / 1000));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [startedAt]);
+  const timerDisplay = useMemo(() => {
+    const m = Math.floor(elapsedSeconds / 60);
+    const s = elapsedSeconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }, [elapsedSeconds]);
+
+  const getActiveExercise = useMemo(() => {
+    if (!activeExerciseId) return null;
+    return exercisesInWorkout.find((e) => e.exercise.id === activeExerciseId) ?? null;
+  }, [activeExerciseId, exercisesInWorkout]);
+
+  const activeWorkflow = activeExerciseId ? workflowByExerciseId[activeExerciseId] : null;
+
+  const updateWorkflow = useCallback(
+    (
+      exerciseId: string,
+      updater: (w: ExerciseWorkflowState) => ExerciseWorkflowState
+    ) => {
+      setWorkflowByExerciseId((prev: Record<string, ExerciseWorkflowState>) => {
+        const current = prev[exerciseId];
+        if (!current) return prev;
+        return Object.assign({}, prev, {
+          [exerciseId]: updater(current),
+        });
       });
-    }, 500);
-    return () => clearInterval(id);
-  }, []);
-
-  const elapsedSeconds = startedAt
-    ? Math.floor((now - startedAt.getTime()) / 1000)
-    : 0;
-
-  const patchUIState = useCallback(
-    (exerciseId: string, patch: Partial<ExerciseUIState>) => {
-      setExerciseUIStates((prev) => ({
-        ...prev,
-        [exerciseId]: { ...(prev[exerciseId] ?? emptyUIState()), ...patch },
-      }));
     },
     []
   );
 
-  const getUIState = (exerciseId: string): ExerciseUIState =>
-    exerciseUIStates[exerciseId] ?? emptyUIState();
-
-  const handleAddExercise = useCallback(
-    (exercise: Exercise) => {
-      addExercise(exercise);
-      setActiveExerciseId(exercise.id);
-      setExerciseUIStates((prev) =>
-        prev[exercise.id] ? prev : { ...prev, [exercise.id]: emptyUIState() }
+  const chooseNextActiveExerciseId = useCallback((excludeExerciseId?: string) => {
+    const next = exercisesInWorkout.find((e) => {
+      const id = e.exercise.id;
+      return (
+        id !== (excludeExerciseId ?? null) &&
+        !dismissedExerciseIds.has(id) &&
+        workflowByExerciseId[id]?.mode !== "collapsed"
       );
-    },
-    [addExercise]
-  );
+    });
+    setActiveExerciseId(next?.exercise.id ?? null);
+    setPillExpandedExerciseId(null);
+    setRestInlineEditKind(null);
+  }, [dismissedExerciseIds, exercisesInWorkout, workflowByExerciseId]);
 
-  const saveSet = useCallback(
-    async (exerciseId: string, reps: number | null, weight: number | null) => {
-      if (!reps && !weight) {
-        toast.error("Enter reps or weight");
-        return;
-      }
-      patchUIState(exerciseId, { savingSet: true });
-      setActiveExerciseId(exerciseId);
-      const result = await addSet(
-        exerciseId,
-        { reps, weightLbs: weight, durationSeconds: null, distanceMeters: null, notes: null },
-        "manual"
-      );
-      if (!result) {
-        toast.error("Failed to log set");
-        patchUIState(exerciseId, { savingSet: false });
-        return;
-      }
-      if (result.prHint?.isPR) {
-        const key = `${exerciseId}-${result.setNumber}`;
-        if (!prToastKeysRef.current.has(key)) {
-          prToastKeysRef.current.add(key);
-          showPRToast({ ...result.prHint });
-          triggerConfetti("pr");
-        }
-      }
-      patchUIState(exerciseId, {
-        savingSet: false,
-        restEndsAt: Date.now() + REST_SECONDS * 1000,
+  const handleCancelSetup = useCallback(() => {
+    if (!activeExerciseId || !activeWorkflow) return;
+    const exercise = exercisesInWorkout.find((e) => e.exercise.id === activeExerciseId);
+    const logsCount = exercise?.logs.length ?? 0;
+    if (logsCount === 0) {
+      setDismissedExerciseIds((prev) => {
+        const next = new Set(prev);
+        next.add(activeExerciseId);
+        return next;
       });
+      setActiveExerciseId(null);
+      setRestInlineEditKind(null);
+      return;
+    }
+    updateWorkflow(activeExerciseId, (w) => ({
+      ...w,
+      activeStage: 5,
+      cameFromRest: false,
+      state4EditMode: false,
+    }));
+    setRestInlineEditKind(null);
+  }, [
+    activeExerciseId,
+    activeWorkflow,
+    exercisesInWorkout,
+    updateWorkflow,
+  ]);
+
+  const updateExerciseLogFull = useCallback(
+    async (logId: string, payload: SetValues) => {
+      const { error } = await supabase.from("exercise_logs").update({
+        reps: payload.reps,
+        weight_lbs: payload.weightLbs,
+        duration_seconds: payload.durationSeconds,
+        distance_meters: payload.distanceMeters,
+        notes: payload.notes,
+      }).eq("id", logId);
+
+      if (error) throw error;
+      await refetch();
     },
-    [addSet, patchUIState]
+    [refetch, supabase]
   );
 
-  const handleLogSet = useCallback(
-    (exerciseId: string) => {
-      const s = getUIState(exerciseId);
-      const reps = s.reps ? parseInt(s.reps, 10) : null;
-      const weight = s.weight ? parseFloat(s.weight) : null;
-      saveSet(exerciseId, reps, weight);
+  const updateExerciseLogSimple = useCallback(
+    async (logId: string, payload: { reps: number | null; weightLbs: number | null; notes: string | null }) => {
+      const existing = (await supabase.from("exercise_logs").select("duration_seconds, distance_meters").eq("id", logId).single()) as unknown;
+      if (!existing) throw new Error("Failed to fetch set for update");
+      await supabase.from("exercise_logs").update({
+        reps: payload.reps,
+        weight_lbs: payload.weightLbs,
+        notes: payload.notes,
+      }).eq("id", logId);
+      await refetch();
     },
-    [getUIState, saveSet]
+    [refetch, supabase]
   );
 
-  const handleLogAnother = useCallback(
-    (exerciseId: string, lastLog: ExerciseLog) => {
-      const reps = lastLog.reps;
-      const weight = lastLog.weight_lbs != null ? Number(lastLog.weight_lbs) : null;
-      saveSet(exerciseId, reps, weight);
+  const handleSaveSetup = useCallback(
+    async (values: SetValues, via: "manual" = "manual") => {
+      if (!activeExerciseId) return;
+      setActiveExerciseId(activeExerciseId);
+      if (!workoutId) return;
+      setSetupSaving(true);
+      try {
+        const result = await addSet(activeExerciseId, values, via);
+        const addResult = result as AddSetResult | null;
+        if (!addResult) return;
+
+        const { prHint, logId, setNumber } = addResult;
+        if (prHint?.isPR && prHint.prType) {
+          const k = `${activeExerciseId}-${prHint.prType}`;
+          if (!prToastKeysRef.current.has(k)) {
+            prToastKeysRef.current.add(k);
+            showPRToast({
+              exerciseName: prHint.exerciseName,
+              prType: prHint.prType,
+              weightLbs: prHint.prType === "weight" ? prHint.weightLbs : 0,
+              reps: prHint.prType === "reps" ? prHint.reps : 0,
+            });
+          }
+        }
+
+        updateWorkflow(activeExerciseId, (w) => ({
+          ...w,
+          activeStage: 1,
+          cameFromRest: false,
+          lastSetLogId: logId,
+          lastSetNumber: setNumber,
+          lastSetDraft: values,
+          setupDraft: values,
+          nextDraft: w.nextDraft,
+          startMessage: pickRandomMessage(START_MESSAGES),
+          restMessage: '',
+          showCelebration: false,
+          state4EditMode: false,
+        }));
+        setRestInlineEditKind(null);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not save set");
+      } finally {
+        setSetupSaving(false);
+      }
     },
-    [saveSet]
+    [addSet, activeExerciseId, updateWorkflow, workoutId]
   );
 
-  const handleFinish = useCallback(
+  const handleStartReady = useCallback(() => {
+    if (!activeExerciseId) return;
+    updateWorkflow(activeExerciseId, (w) => ({
+      ...w,
+      activeStage: 2,
+      activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
+    }));
+    setRestInlineEditKind(null);
+  }, [activeExerciseId, updateWorkflow]);
+
+  const handleCompleteActiveSet = useCallback(() => {
+    if (!activeExerciseId || !activeWorkflow) return;
+    triggerConfetti("badge");
+    setActiveExerciseId(activeExerciseId);
+    updateWorkflow(activeExerciseId, (w) => ({
+      ...w,
+      activeStage: 3,
+      restMessage: pickRandomMessage(REST_MESSAGES),
+      showCelebration: true,
+      nextDraft: w.lastSetDraft,
+      state4EditMode: false,
+    }));
+    setRestInlineEditKind(null);
+  }, [activeExerciseId, activeWorkflow, updateWorkflow]);
+
+  const handleRestComplete = useCallback(() => {
+    if (!activeExerciseId) return;
+    updateWorkflow(activeExerciseId, (w) => ({
+      ...w,
+      activeStage: 5,
+      state4EditMode: false,
+    }));
+    setRestInlineEditKind(null);
+  }, [activeExerciseId, updateWorkflow]);
+
+  const handleAdvanceToMoveOn = useCallback(() => {
+    if (!activeExerciseId) return;
+    updateWorkflow(activeExerciseId, (w) => ({
+      ...w,
+      activeStage: 4,
+      state4EditMode: false,
+    }));
+    setRestInlineEditKind(null);
+  }, [activeExerciseId, updateWorkflow]);
+
+  const handleSirCanIHaveAnother = useCallback(async () => {
+    if (!activeExerciseId || !activeWorkflow) return;
+
+    const nextValues = activeWorkflow.nextDraft;
+    const result = await addSet(activeExerciseId, nextValues, "manual");
+    const addResult = result as AddSetResult | null;
+    if (!addResult) {
+      toast.error("Failed to start next set");
+      return;
+    }
+
+    const { prHint, logId, setNumber } = addResult;
+    if (prHint?.isPR && prHint.prType) {
+      const k = `${activeExerciseId}-${prHint.prType}`;
+      if (!prToastKeysRef.current.has(k)) {
+        prToastKeysRef.current.add(k);
+        showPRToast({
+          exerciseName: prHint.exerciseName,
+          prType: prHint.prType,
+          weightLbs: prHint.prType === "weight" ? prHint.weightLbs : 0,
+          reps: prHint.prType === "reps" ? prHint.reps : 0,
+        });
+      }
+    }
+
+    updateWorkflow(activeExerciseId, (w) => ({
+      ...w,
+      activeStage: 2, // go directly to ACTIVE SET (red button)
+      cameFromRest: true,
+      lastSetLogId: logId,
+      lastSetNumber: setNumber,
+      lastSetDraft: nextValues,
+      setupDraft: nextValues,
+      state4EditMode: false,
+      showCelebration: false,
+      activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
+    }));
+    setRestInlineEditKind(null);
+  }, [activeExerciseId, activeWorkflow, addSet, updateWorkflow]);
+
+  const handleSaveAndCollapseExercise = useCallback(() => {
+    if (!activeExerciseId) return;
+    updateWorkflow(activeExerciseId, (w) => ({
+      ...w,
+      mode: "collapsed",
+      activeStage: 4,
+      state4EditMode: false,
+    }));
+    setActiveExerciseId(null);
+    setPillExpandedExerciseId(null);
+    setRestInlineEditKind(null);
+  }, [activeExerciseId, updateWorkflow]);
+
+  const handleSaveAndFinish = useCallback(
     async (perceivedEffort: number | null, overallNotes: string | null) => {
-      if (!workout) return;
       try {
         const result = await completeWorkout(perceivedEffort, overallNotes);
-        for (const pr of result.prEvents) {
+        for (const ev of result.prEvents) {
+          const k = `${ev.exerciseId}-${ev.prType}`;
+          if (prToastKeysRef.current.has(k)) continue;
+          prToastKeysRef.current.add(k);
           showPRToast({
-            exerciseName: pr.exerciseName,
-            prType: pr.prType,
-            weightLbs: pr.value,
-            reps: pr.value,
+            exerciseName: ev.exerciseName,
+            prType: ev.prType,
+            weightLbs: ev.prType === "weight" ? ev.value : 0,
+            reps: ev.prType === "reps" ? ev.value : 0,
           });
         }
-        for (const badge of result.newBadges) {
-          showBadgeToast(badge);
-        }
-        if (result.prEvents.length > 0 || result.newBadges.length > 0) triggerConfetti("pr");
+        for (const b of result.newBadges) showBadgeToast(b);
         router.push("/log");
+        router.refresh();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to finish workout");
+        toast.error(e instanceof Error ? e.message : "Could not save workout");
       }
     },
-    [workout, completeWorkout, router]
+    [completeWorkout, router]
   );
 
-  // Active exercise first, rest in original order
-  const sortedExercises = [...exercises].sort((a, b) => {
-    if (a.exercise.id === activeExerciseId) return -1;
-    if (b.exercise.id === activeExerciseId) return 1;
-    return 0;
-  });
+  const completedPills = useMemo(() => {
+    return exercisesInWorkout
+      .map((e) => e.exercise.id)
+      .filter((id) => workflowByExerciseId[id]?.mode === "collapsed")
+      .filter((id) => !dismissedExerciseIds.has(id));
+  }, [dismissedExerciseIds, exercisesInWorkout, workflowByExerciseId]);
 
-  const totalSets = exercises.reduce((sum, e) => sum + e.logs.length, 0);
-  const totalVolume = exercises.reduce(
-    (sum, e) =>
-      sum + e.logs.reduce((s, l) => s + (l.reps ?? 0) * (Number(l.weight_lbs) || 0), 0),
-    0
-  );
+  const activeModeExerciseIdsOrdered = useMemo(() => {
+    const ids = exercisesInWorkout
+      .map((e) => e.exercise.id)
+      .filter(
+        (id) =>
+          !dismissedExerciseIds.has(id) &&
+          workflowByExerciseId[id]?.mode === "active"
+      );
+    if (ids.length === 0) return [];
+    const primary =
+      activeExerciseId && ids.includes(activeExerciseId)
+        ? activeExerciseId
+        : null;
+    if (!primary) return ids;
+    return [primary, ...ids.filter((id) => id !== primary)];
+  }, [
+    activeExerciseId,
+    dismissedExerciseIds,
+    exercisesInWorkout,
+    workflowByExerciseId,
+  ]);
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-200" />
-      </div>
-    );
-  }
-
-  if (showSummary) {
-    return (
-      <WorkoutSummary
-        durationMinutes={Math.floor(elapsedSeconds / 60)}
-        totalVolume={totalVolume}
-        exerciseCount={exercises.filter((e) => e.logs.length > 0).length}
-        setCount={totalSets}
-        exercisesWithLogs={exercises}
-        onSaveAndFinish={handleFinish}
+  const renderAddExerciseEmptyState = () => (
+    <div className="space-y-4">
+      <Button
+        variant="outline"
+        size="lg"
+        className="min-h-[44px] w-full border-zinc-700"
+        onClick={() => setShowExerciseSearch(true)}
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        Add Exercise
+      </Button>
+      <ExerciseSearchSheet
+        open={showExerciseSearch}
+        onOpenChange={setShowExerciseSearch}
+        exercises={exerciseLibrary}
+        onSelect={(ex) => {
+          addExercise(ex);
+          setShowExerciseSearch(false);
+          setActiveExerciseId(ex.id);
+          setWorkflowByExerciseId((prev: Record<string, ExerciseWorkflowState>) => {
+            const last = emptySetValues();
+            if (prev[ex.id]) return prev;
+            return Object.assign({}, prev, {
+              [ex.id]: {
+                mode: "active",
+                activeStage: 0,
+                cameFromRest: false,
+                setupDraft: last,
+                nextDraft: last,
+                lastSetDraft: last,
+                lastSetLogId: null,
+                lastSetNumber: null,
+                startMessage: pickRandomMessage(START_MESSAGES),
+                activeMessage: pickRandomMessage(ACTIVE_MESSAGES),
+                restMessage: '',
+                showCelebration: false,
+                state4EditMode: false,
+              } satisfies ExerciseWorkflowState,
+            });
+          });
+        }}
       />
-    );
-  }
+    </div>
+  );
 
-  return (
-    <div className="flex min-h-screen flex-col bg-background pb-24">
-      {/* Top bar */}
-      <div className="sticky top-0 z-20 flex items-center justify-between border-b border-zinc-800 bg-background px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Timer className="h-4 w-4 text-zinc-400" />
-          <span className="tabular-nums font-medium text-zinc-100">
-            {formatElapsed(elapsedSeconds)}
-          </span>
+  const renderActiveStageForExercise = (exerciseId: string) => {
+    const ex = exercisesInWorkout.find((e) => e.exercise.id === exerciseId);
+    const w = workflowByExerciseId[exerciseId];
+    if (!ex || !w || w.mode !== "active") return null;
+
+    const primaryExerciseId =
+      activeExerciseId ?? activeModeExerciseIdsOrdered[0] ?? null;
+    if (
+      primaryExerciseId != null &&
+      exerciseId !== primaryExerciseId &&
+      w.activeStage !== 3
+    ) {
+      return null;
+    }
+
+    const logs = ex.logs;
+
+    if (w.activeStage === 0) {
+      return (
+        <div className="space-y-3">
+          <h2 className="text-2xl font-bold text-zinc-100">
+            {ex.exercise.name}
+          </h2>
+          <SetupForm
+            initial={w.setupDraft}
+            saving={setupSaving}
+            onCancel={handleCancelSetup}
+            onSave={(v) => {
+              void handleSaveSetup(v, "manual");
+            }}
+          />
         </div>
-        <button
-          type="button"
-          onClick={() => setShowSummary(true)}
-          className="min-h-[44px] rounded-lg border border-zinc-700 px-4 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:text-white"
-        >
-          Finish Workout
-        </button>
-      </div>
+      );
+    }
 
-      {/* Content */}
-      <div className="flex flex-col gap-4 p-4">
-        {/* Add Exercise */}
-        <button
-          type="button"
-          onClick={() => setSearchOpen(true)}
-          className="flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-zinc-700 text-zinc-400 transition-colors active:border-zinc-500 active:text-zinc-200"
-        >
-          <Plus className="h-5 w-5" />
-          <span className="text-base font-medium">Add Exercise</span>
-        </button>
+    if (w.activeStage === 1) {
+      const setNumber = w.lastSetNumber ?? (logs.length || 1);
+      const draft = w.lastSetDraft;
 
-        {/* Exercise cards */}
-        {sortedExercises.map(({ exercise, logs, prescribed }) => {
-          const s = getUIState(exercise.id);
-          const restSecondsLeft =
-            s.restEndsAt != null
-              ? Math.max(0, Math.ceil((s.restEndsAt - now) / 1000))
-              : null;
-          const isResting = restSecondsLeft != null && restSecondsLeft > 0;
-          const lastLog = logs[logs.length - 1];
+      return (
+        <div className="space-y-3">
+          <h2 className="text-2xl font-bold text-zinc-100">
+            {ex.exercise.name}
+          </h2>
+          <div className="text-sm text-zinc-300 flex items-baseline gap-1 flex-wrap">
+            <span>Set</span>
+            <OdometerNumber value={setNumber} className="font-semibold text-zinc-100" />
+            <span>—</span>
+            {draft.reps != null && (
+              <>
+                <OdometerNumber value={draft.reps} className="font-semibold text-zinc-100" />
+                <span>reps</span>
+              </>
+            )}
+            {draft.weightLbs != null && (
+              <>
+                <span>@</span>
+                <OdometerNumber value={draft.weightLbs} className="font-semibold text-zinc-100" />
+                <span>lbs</span>
+              </>
+            )}
+            {draft.reps == null && draft.weightLbs == null && <span>—</span>}
+          </div>
+          <CircleActionButton
+            variant="green"
+            message={w.startMessage}
+            onClick={handleStartReady}
+          />
+        </div>
+      );
+    }
 
-          const repPlaceholder =
-            prescribed?.reps != null ? String(prescribed.reps) : "0";
-          const weightPlaceholder =
-            prescribed?.weight_lbs != null ? String(prescribed.weight_lbs) : "0";
+    if (w.activeStage === 2) {
+      const setNumber = w.lastSetNumber ?? (logs.length || 1);
+      return (
+        <div className="space-y-3">
+          <h2 className="text-2xl font-bold text-zinc-100">
+            {ex.exercise.name}
+          </h2>
+          <div className="text-sm text-zinc-300">
+            Set {setNumber} in progress...
+          </div>
+          <CircleActionButton
+            variant="red"
+            message={w.activeMessage}
+            onClick={handleCompleteActiveSet}
+          />
+        </div>
+      );
+    }
 
-          return (
-            <div
-              key={exercise.id}
-              className="rounded-xl border border-zinc-800 bg-card/60"
-              onPointerDown={() => setActiveExerciseId(exercise.id)}
-            >
-              {/* Card header */}
-              <div className="flex items-center justify-between px-4 py-3">
-                <span className="font-semibold text-zinc-100">{exercise.name}</span>
-                {logs.length > 0 && (
-                  <span className="text-sm text-zinc-500">
-                    {logs.length} set{logs.length !== 1 ? "s" : ""}
-                  </span>
-                )}
-              </div>
+    if (w.activeStage === 3) {
+      const setsCompleted = logs.length;
+      const hasSets = setsCompleted > 0;
+      const nextSetIndex = setsCompleted + 1;
 
-              {/* Rest timer banner */}
-              {isResting && (
-                <div className="mx-4 mb-3 flex items-center justify-between rounded-lg bg-zinc-800/80 px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <Timer className="h-4 w-4 text-zinc-400" />
-                    <span className="tabular-nums text-xl font-bold text-zinc-100">
-                      {Math.floor(restSecondsLeft / 60)}:
-                      {(restSecondsLeft % 60).toString().padStart(2, "0")}
-                    </span>
-                    <span className="text-sm text-zinc-400">rest</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => patchUIState(exercise.id, { restEndsAt: null })}
-                    className="min-h-[44px] px-2 text-sm text-zinc-400 underline underline-offset-2"
-                  >
-                    Skip
-                  </button>
-                </div>
-              )}
+      if (exerciseId !== primaryExerciseId) {
+        return (
+          <div className="space-y-3">
+            <h2 className="text-2xl font-bold text-zinc-100">
+              {ex.exercise.name}
+            </h2>
+            <div className="text-sm text-zinc-300">
+              {setsCompleted} set{setsCompleted === 1 ? "" : "s"} logged
+            </div>
+            {hasSets ? <SetsDotsIndicator count={setsCompleted} /> : null}
+          </div>
+        );
+      }
 
-              {/* Input area — always visible, even while resting */}
-              <div className="px-4 pb-4 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-500">Reps</label>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      placeholder={repPlaceholder}
-                      value={s.reps}
-                      onChange={(e) => patchUIState(exercise.id, { reps: e.target.value })}
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-center text-2xl font-bold tabular-nums text-zinc-100 focus:outline-none focus:ring-2 focus:ring-green-500/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-500">Weight (lbs)</label>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      placeholder={weightPlaceholder}
-                      value={s.weight}
-                      onChange={(e) => patchUIState(exercise.id, { weight: e.target.value })}
-                      className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-center text-2xl font-bold tabular-nums text-zinc-100 focus:outline-none focus:ring-2 focus:ring-green-500/50"
-                    />
-                  </div>
-                </div>
+      const completedSetsList =
+        restInlineEditKind === "last" ? null : (
+          <div className="space-y-2">
+            {hasSets ? <SetsDotsIndicator count={setsCompleted} /> : null}
+            <div className="space-y-2">
+              {logs.map((log) => (
+                <EditableSetRowFull
+                  key={log.id}
+                  log={log}
+                  onUpdate={async (payload) => {
+                    await updateExerciseLogFull(log.id, payload);
+                    if (w.lastSetLogId === log.id) {
+                      const nextDraft = payload;
+                      updateWorkflow(exerciseId, (wf) => ({
+                        ...wf,
+                        lastSetDraft: { ...wf.lastSetDraft, ...nextDraft },
+                        nextDraft: { ...wf.nextDraft, ...nextDraft },
+                      }));
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        );
 
-                <button
-                  type="button"
-                  onClick={() => handleLogSet(exercise.id)}
-                  disabled={s.savingSet}
-                  className="flex min-h-[56px] w-full items-center justify-center rounded-xl bg-green-600 text-base font-bold text-white transition-colors active:bg-green-700 disabled:opacity-50"
+      const editLastForm =
+        restInlineEditKind === "last" && w.lastSetLogId ? (
+          <div className="rounded-xl border border-zinc-800 bg-card/40 p-3">
+            <div className="mb-2 text-xs font-medium text-zinc-400">
+              Edit LAST set
+            </div>
+            <SetupForm
+              initial={w.lastSetDraft}
+              saving={editingLastSaving}
+              onCancel={() => setRestInlineEditKind(null)}
+              onSave={async (values) => {
+                if (!w.lastSetLogId) return;
+                setEditingLastSaving(true);
+                try {
+                  await updateExerciseLogFull(w.lastSetLogId, values);
+                  updateWorkflow(exerciseId, (wf) => ({
+                    ...wf,
+                    lastSetDraft: { ...wf.lastSetDraft, ...values },
+                    nextDraft: { ...wf.nextDraft, ...values },
+                  }));
+                  setRestInlineEditKind(null);
+                } catch (e) {
+                  toast.error(
+                    e instanceof Error ? e.message : "Failed to save last set"
+                  );
+                } finally {
+                  setEditingLastSaving(false);
+                }
+              }}
+            />
+          </div>
+        ) : null;
+
+      const editNextForm =
+        restInlineEditKind === "next" ? (
+          <div className="rounded-xl border border-zinc-800 bg-card/40 p-3">
+            <div className="mb-2 text-xs font-medium text-zinc-400">
+              Set {nextSetIndex}
+            </div>
+            <SetupForm
+              initial={w.nextDraft}
+              saving={editingNextSaving}
+              onCancel={() => setRestInlineEditKind(null)}
+              onSave={async (values) => {
+                setEditingNextSaving(true);
+                try {
+                  updateWorkflow(exerciseId, (wf) => ({
+                    ...wf,
+                    nextDraft: { ...wf.nextDraft, ...values },
+                  }));
+                  setRestInlineEditKind(null);
+                } catch (e) {
+                  toast.error(
+                    e instanceof Error ? e.message : "Failed to save next set"
+                  );
+                } finally {
+                  setEditingNextSaving(false);
+                }
+              }}
+            />
+            <div className="mt-3">{completedSetsList}</div>
+          </div>
+        ) : null;
+
+      return (
+        <div className="space-y-3">
+          <h2 className="text-2xl font-bold text-zinc-100">
+            {ex.exercise.name}
+          </h2>
+          {w.restMessage ? (
+            <div className="text-sm text-zinc-300 text-center">
+              {w.restMessage}
+            </div>
+          ) : null}
+
+          {editLastForm}
+          {editNextForm}
+
+          <RestCountdown
+            initialSeconds={60}
+            onDone={handleRestComplete}
+            onSkip={handleRestComplete}
+          />
+
+          {restInlineEditKind === null && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] border-zinc-700 bg-zinc-900/40 hover:bg-zinc-900"
+                  onClick={() => setRestInlineEditKind("last")}
                 >
-                  {s.savingSet
-                    ? "Logging…"
-                    : logs.length === 0
-                      ? "Log Set"
-                      : `Log Set ${logs.length + 1}`}
-                </button>
-
-                {lastLog && (
-                  <button
-                    type="button"
-                    onClick={() => handleLogAnother(exercise.id, lastLog)}
-                    disabled={s.savingSet}
-                    className="flex min-h-[44px] w-full items-center justify-center rounded-lg border border-zinc-700 text-sm text-zinc-400 transition-colors active:border-zinc-500 active:text-zinc-200 disabled:opacity-50"
-                  >
-                    + Same Again ({formatSetLine(lastLog)})
-                  </button>
-                )}
+                  Edit LAST set
+                </Button>
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] border-zinc-700 bg-zinc-900/40 hover:bg-zinc-900"
+                  onClick={() => setRestInlineEditKind("next")}
+                >
+                  Edit NEXT set
+                </Button>
               </div>
+              {completedSetsList}
+            </>
+          )}
+        </div>
+      );
+    }
 
-              {/* Logged sets */}
-              {logs.length > 0 && (
-                <div className="border-t border-zinc-800 px-4 py-3 space-y-1.5">
-                  {logs.map((log) => (
-                    <div key={log.id} className="flex items-center justify-between text-sm">
-                      <span className="text-zinc-500">Set {log.set_number}</span>
-                      <span className="text-zinc-300">{formatSetLine(log)}</span>
+    if (w.activeStage === 5) {
+      const setsCompleted = logs.length;
+
+      return (
+        <div className="space-y-3">
+          <h2 className="text-2xl font-bold text-zinc-100">
+            {ex.exercise.name}
+          </h2>
+
+          <CircleActionButton
+            variant="green"
+            message={NEXT_REPEAT_FIRST}
+            onClick={handleSirCanIHaveAnother}
+          />
+
+          {setsCompleted > 0 ? <SetsDotsIndicator count={setsCompleted} /> : null}
+
+          {setsCompleted > 0 ? (
+            <div className="space-y-2">
+              {logs.map((log) => (
+                <EditableSetRowFull
+                  key={log.id}
+                  log={log}
+                  onUpdate={async (payload) => {
+                    await updateExerciseLogFull(log.id, payload);
+                    if (w.lastSetLogId === log.id) {
+                      updateWorkflow(exerciseId, (wf) => ({
+                        ...wf,
+                        lastSetDraft: { ...wf.lastSetDraft, ...payload },
+                        nextDraft: { ...wf.nextDraft, ...payload },
+                      }));
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {setsCompleted > 0 ? (
+            <button
+              type="button"
+              className="mx-auto min-h-[44px] min-w-[140px] rounded-md text-sm text-zinc-400 hover:text-zinc-300"
+              onClick={handleAdvanceToMoveOn}
+            >
+              Move On
+            </button>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (w.activeStage === 4) {
+      const setCount = logs.length;
+      return (
+        <div className="space-y-3">
+          <h2 className="text-2xl font-bold text-zinc-100">
+            {ex.exercise.name}
+          </h2>
+          <div className="text-sm text-zinc-300">
+            {setCount} set{setCount === 1 ? "" : "s"} completed
+          </div>
+
+          {setCount > 0 ? <SetsDotsIndicator count={setCount} /> : null}
+
+          <div>{renderSetReadOnlyList(logs)}</div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-[44px] border-zinc-700 bg-zinc-900/40"
+              onClick={() =>
+                updateWorkflow(exerciseId, (wf) => ({
+                  ...wf,
+                  activeStage: 5,
+                  state4EditMode: false,
+                }))
+              }
+            >
+              Edit
+            </Button>
+            <Button
+              type="button"
+              className="min-h-[44px] bg-green-600 hover:bg-green-500"
+              onClick={handleSaveAndCollapseExercise}
+            >
+              Done ✓
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  const renderCompletedPills = () => {
+    if (!completedPills.length) return null;
+    return (
+      <div className="space-y-2">
+        {completedPills.map((exerciseId) => {
+          const ex = exercisesInWorkout.find((e) => e.exercise.id === exerciseId);
+          if (!ex) return null;
+          const logs = ex.logs;
+          const exerciseLogIds = new Set(logs.map((l) => l.id));
+          const mediaItems = workoutMedia.filter((m) => {
+            if (!m.exercise_log_id) return false;
+            return exerciseLogIds.has(m.exercise_log_id);
+          });
+          const expanded = pillExpandedExerciseId === exerciseId;
+          return (
+            <div key={exerciseId}>
+              <button
+                type="button"
+                className={[
+                  "flex w-full items-center justify-between rounded-full border px-4 py-3",
+                  "bg-green-600/15 border-green-500/30 text-zinc-100",
+                  expanded ? "bg-green-600/20" : "",
+                ].join(" ")}
+                onClick={() =>
+                  setPillExpandedExerciseId((prev) =>
+                    prev === exerciseId ? null : exerciseId
+                  )
+                }
+              >
+                <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                  <span className="min-w-0 truncate text-sm font-semibold">
+                    {ex.exercise.name}
+                  </span>
+                  <DotsOnlyIndicator count={logs.length} />
+                </div>
+                <ChevronRight className="h-4 w-4" />
+              </button>
+
+              {expanded && (
+                <div className="mt-2 space-y-3 rounded-xl border border-zinc-800 bg-card p-3">
+                  <div className="text-sm font-medium text-zinc-100">
+                    Logged sets
+                  </div>
+                  <div className="space-y-2">
+                    {logs.map((log) => (
+                      <EditableSetRowFull
+                        key={log.id}
+                        log={log}
+                        onUpdate={async (payload) => {
+                          await updateExerciseLogFull(log.id, payload);
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-muted-foreground">
+                      Add media
                     </div>
-                  ))}
+                    {mediaItems.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No media yet
+                      </p>
+                    ) : (
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {mediaItems.map((m) => (
+                          <div
+                            key={m.id}
+                            className="h-16 w-16 shrink-0 overflow-hidden rounded-md border border-zinc-700 bg-zinc-900"
+                          >
+                            {m.type === "photo" ? (
+                              <img
+                                src={m.signedUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center">
+                                <Video className="h-6 w-6 text-cyan-400" />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <MediaUpload
+                      workoutLogId={workoutId}
+                      exerciseLogId={logs[logs.length - 1]?.id ?? null}
+                      onUploadComplete={refreshWorkoutMedia}
+                    />
+                  </div>
                 </div>
               )}
             </div>
           );
         })}
+      </div>
+    );
+  };
 
-        {exercises.length === 0 && (
-          <div className="py-16 text-center">
-            <p className="text-zinc-500">Tap Add Exercise to start</p>
+  if (loading || !workout) {
+    return (
+      <div className="space-y-4 pb-8">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (workout.completed_at) {
+    router.replace("/log");
+    return null;
+  }
+
+  const exerciseCount = exercisesInWorkout.filter((e) => e.logs.length > 0).length;
+  const setCount = exercisesInWorkout.reduce((sum, e) => sum + e.logs.length, 0);
+  const totalVolume = exercisesInWorkout.reduce((sum, e) => {
+    return (
+      sum +
+      e.logs.reduce((s, l) => {
+        const reps = l.reps ?? 0;
+        const w = l.weight_lbs != null ? Number(l.weight_lbs) : 0;
+        return s + reps * w;
+      }, 0)
+    );
+  }, 0);
+  const durationMinutes = startedAt ? Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 60000)) : 0;
+
+  const completedExercises = exercisesInWorkout.filter((e) => e.logs.length > 0);
+
+  if (showSummary) {
+    return (
+      <WorkoutSummary
+        durationMinutes={durationMinutes}
+        totalVolume={totalVolume}
+        exerciseCount={exerciseCount}
+        setCount={setCount}
+        exercisesWithLogs={completedExercises}
+        onSaveAndFinish={handleSaveAndFinish}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4 pb-10">
+      <header className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <Input
+            value={workoutName}
+            onChange={(e) => setWorkoutName(e.target.value)}
+            className="border-zinc-800 bg-transparent text-lg font-semibold text-zinc-100"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="tabular-nums font-mono text-lg text-zinc-200">
+            {timerDisplay}
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => setShowFinishConfirm(true)}
+            className="min-h-[44px]"
+          >
+            Finish Workout
+          </Button>
+        </div>
+      </header>
+
+      <Dialog open={showFinishConfirm} onOpenChange={setShowFinishConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>End workout?</DialogTitle>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowFinishConfirm(false)}
+              className="flex-1"
+            >
+              Keep Going
+            </Button>
+            <Button
+              onClick={() => {
+                setShowFinishConfirm(false);
+                setShowSummary(true);
+              }}
+              className="flex-1"
+            >
+              Finish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="space-y-4">
+        {activeModeExerciseIdsOrdered.length === 0 ? (
+          <Card className="border-zinc-800 bg-card/30 p-4">
+            <CardContent className="space-y-4 p-0">
+              {renderAddExerciseEmptyState()}
+            </CardContent>
+          </Card>
+        ) : (
+          activeModeExerciseIdsOrdered.map((exerciseId) => (
+            <Card
+              key={exerciseId}
+              className="border-zinc-800 bg-card/30 p-4"
+            >
+              <CardContent className="space-y-4 p-0">
+                {renderActiveStageForExercise(exerciseId)}
+              </CardContent>
+            </Card>
+          ))
+        )}
+
+        {renderCompletedPills()}
+
+        {activeExerciseId === null && completedPills.length === 0 && (
+          <div className="text-sm text-muted-foreground">
+            Add an exercise to get started.
           </div>
         )}
       </div>
-
-      <ExerciseSearchSheet
-        open={searchOpen}
-        onOpenChange={setSearchOpen}
-        exercises={exerciseLibrary}
-        onSelect={handleAddExercise}
-      />
     </div>
   );
 }
+
