@@ -8,7 +8,13 @@ import type { Database } from "@/lib/supabase/types";
 
 import { ChevronRight, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkoutSummary } from "@/components/workout/WorkoutSummary";
 import { ExerciseSearchSheet } from "@/components/workout/ExerciseSearchSheet";
@@ -35,34 +41,63 @@ function emptySetValues(): SetValues {
   return { reps: null, weightLbs: null, durationSeconds: null, distanceMeters: null, notes: null };
 }
 
+type CardioMode = "timed" | "hiit";
+
 /**
- * Stage machine per exercise:
- *
- *   setup  — pick reps/weight with drums, no timer yet
- *   active — red END SET circle only; exercise timer running
- *   rest   — rest countdown; edit/skip buttons; Next Exercise at bottom
- *
- * "ready" was merged back into "setup" — after rest, setup just
- * pre-loads the previous set's values so the drums are ready to go.
+ * STRENGTH stages:  setup → active → rest  (loops)
+ * TIMED CARDIO:     setup → warmup → countdown → celebrate
+ * HIIT:             setup → prestart → intense → recovery → (loop) → celebrate
  */
-type Stage = "setup" | "active" | "rest";
+type Stage =
+  | "setup"
+  | "active"       // strength: set in progress
+  | "rest"         // strength: between sets
+  | "warmup"       // timed cardio: 45s get-moving phase
+  | "countdown"    // timed cardio: main timer counting down
+  | "celebrate"    // timed/hiit: done
+  | "prestart"     // hiit: 10s countdown before first interval
+  | "intense"      // hiit: high-intensity phase (green)
+  | "recovery";    // hiit: recovery phase (orange)
 
 type ExerciseState = {
   stage: Stage;
-  /** Values configured for the current/next set */
+
+  // ── Strength fields ──────────────────────────────────────────────────────
   setupValues: SetValues;
-  /** Log ID of the last completed set — needed for Edit Last Set */
   lastLogId: string | null;
-  /** A local copy of last log values so Edit Last Set can be driven by drums */
   lastLogValues: SetValues;
-  /** unix ms when exercise timer started (first Begin Set tap) */
+  /** unix ms when exercise timer started */
   exerciseStartedAt: number | null;
+  /** unix ms when the rest period started — null if not resting */
+  restStartedAt: number | null;
   beginMessage: string;
   activeMessage: string;
   restMessage: string;
+
+  // ── Cardio fields ────────────────────────────────────────────────────────
+  cardioMode: CardioMode;
+  timedDurationMinutes: number;
+  timedNotes: string;
+  hiitIntenseSecs: number;
+  hiitRestSecs: number;
+  hiitCycles: number;
+  /** unix ms when current timed/hiit phase started */
+  phaseStartedAt: number | null;
+  /** HIIT: current cycle index (0-based) */
+  hiitCurrentCycle: number;
+  /** HIIT: how many full cycles completed (for logging on early stop) */
+  hiitCyclesCompleted: number;
+  /** unix ms when the whole cardio session started (after warmup) */
+  cardioSessionStartedAt: number | null;
 };
 
-// ─── Wolf messages ─────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const REST_DURATION_SECS = 60;
+const WARMUP_SECS = 45;
+const HIIT_PRESTART_SECS = 10;
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
 
 const BEGIN_MESSAGES = [
   "LETS GO!",
@@ -98,6 +133,18 @@ function pick<T>(list: readonly T[]): T {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+/** Message shown on the timed-cardio button based on elapsed + remaining seconds */
+function timedButtonMessage(elapsedSecs: number, remainingSecs: number): string {
+  if (remainingSecs <= 3 && remainingSecs > 2) return "YOU";
+  if (remainingSecs <= 2 && remainingSecs > 1) return "DID";
+  if (remainingSecs <= 1) return "IT!";
+  if (remainingSecs <= 60) return "PULLING INTO THE GARAGE";
+  if (remainingSecs <= 180) return "SLOW IT DOWN";
+  if (elapsedSecs >= 300) return "I GIVE UP";
+  if (elapsedSecs >= 120) return "YOU GOT THIS";
+  return "GO GO GO!!!";
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatSetLine(log: ExerciseLog): string {
@@ -105,33 +152,78 @@ function formatSetLine(log: ExerciseLog): string {
   if (log.reps != null) parts.push(`${log.reps} reps`);
   if (log.weight_lbs != null) parts.push(`@ ${Number(log.weight_lbs)} lbs`);
   if (log.duration_seconds != null && log.reps == null && log.weight_lbs == null)
-    parts.push(`${log.duration_seconds}s`);
+    parts.push(`${Math.round(log.duration_seconds / 60)}m`);
   return parts.length ? parts.join(" ") : "—";
 }
 
-function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+function formatSecs(totalSecs: number): string {
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function hiitTotalMinutes(intenseSecs: number, restSecs: number, cycles: number): number {
+  return Math.round(((intenseSecs + restSecs) * cycles) / 60);
+}
+
+function isCardio(exercise: Exercise): boolean {
+  return exercise.category === "cardio";
+}
+
+function makeInitialState(exercise: Exercise, existingLogs: ExerciseLog[]): ExerciseState {
+  const last = existingLogs[existingLogs.length - 1];
+  const lastValues: SetValues = last
+    ? {
+        reps: last.reps,
+        weightLbs: last.weight_lbs != null ? Number(last.weight_lbs) : null,
+        durationSeconds: last.duration_seconds,
+        distanceMeters:
+          last.distance_meters != null ? Number(last.distance_meters) : null,
+        notes: last.notes,
+      }
+    : emptySetValues();
+
+  return {
+    stage: existingLogs.length > 0 ? (isCardio(exercise) ? "setup" : "rest") : "setup",
+    setupValues: lastValues,
+    lastLogId: last?.id ?? null,
+    lastLogValues: lastValues,
+    exerciseStartedAt: existingLogs.length > 0 ? Date.now() : null,
+    restStartedAt: existingLogs.length > 0 && !isCardio(exercise) ? Date.now() : null,
+    beginMessage: pick(BEGIN_MESSAGES),
+    activeMessage: pick(ACTIVE_MESSAGES),
+    restMessage: existingLogs.length > 0 ? pick(REST_MESSAGES) : "",
+    cardioMode: "timed",
+    timedDurationMinutes: 30,
+    timedNotes: "",
+    hiitIntenseSecs: 30,
+    hiitRestSecs: 15,
+    hiitCycles: 10,
+    phaseStartedAt: null,
+    hiitCurrentCycle: 0,
+    hiitCyclesCompleted: 0,
+    cardioSessionStartedAt: null,
+  };
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function CircleActionButton({
-  variant,
+function CircleButton({
+  color,
   message,
   onClick,
   disabled,
 }: {
-  variant: "green" | "red";
+  color: "green" | "red" | "orange";
   message: string;
   onClick: () => void;
   disabled?: boolean;
 }) {
-  const colors =
-    variant === "green"
-      ? "bg-green-500 hover:bg-green-400 active:bg-green-600"
-      : "bg-red-500 hover:bg-red-400 active:bg-red-600";
+  const colors = {
+    green: "bg-green-500 hover:bg-green-400 active:bg-green-600",
+    red: "bg-red-500 hover:bg-red-400 active:bg-red-600",
+    orange: "bg-orange-500 hover:bg-orange-400 active:bg-orange-600",
+  }[color];
   return (
     <button
       type="button"
@@ -145,46 +237,8 @@ function CircleActionButton({
         disabled ? "opacity-50 cursor-not-allowed" : "",
       ].join(" ")}
     >
-      <div className="text-center text-lg font-extrabold leading-tight">{message}</div>
+      <div className="text-center text-xl font-extrabold leading-tight">{message}</div>
     </button>
-  );
-}
-
-function RestCountdown({
-  initialSeconds,
-  onDone,
-}: {
-  initialSeconds: number;
-  onDone: () => void;
-}) {
-  const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
-  const onDoneRef = useRef(onDone);
-  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
-
-  useEffect(() => {
-    setSecondsLeft(initialSeconds);
-    const id = window.setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          window.clearInterval(id);
-          onDoneRef.current();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [initialSeconds]);
-
-  const m = Math.floor(secondsLeft / 60);
-  const s = secondsLeft % 60;
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="text-6xl font-bold tabular-nums text-zinc-100">
-        {m}:{s.toString().padStart(2, "0")}
-      </div>
-      <div className="text-xs text-zinc-500 uppercase tracking-widest">rest</div>
-    </div>
   );
 }
 
@@ -227,7 +281,9 @@ function EditableSetRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [reps, setReps] = useState(log.reps ?? 0);
-  const [weight, setWeight] = useState(log.weight_lbs != null ? Number(log.weight_lbs) : 0);
+  const [weight, setWeight] = useState(
+    log.weight_lbs != null ? Number(log.weight_lbs) : 0
+  );
   const [saving, setSaving] = useState(false);
 
   if (!editing) {
@@ -248,10 +304,22 @@ function EditableSetRow({
       <div className="text-xs text-zinc-400">Edit set {log.set_number}</div>
       <div className="grid grid-cols-2 gap-3">
         <DrumInput value={reps} onChange={setReps} label="Reps" min={0} max={200} step={1} />
-        <DrumInput value={weight} onChange={setWeight} label="Weight" unit="lbs" min={0} max={999} step={2.5} />
+        <DrumInput
+          value={weight}
+          onChange={setWeight}
+          label="Weight"
+          unit="lbs"
+          min={0}
+          max={999}
+          step={2.5}
+        />
       </div>
       <div className="flex gap-2">
-        <Button variant="outline" className="min-h-[44px] flex-1 border-zinc-700" onClick={() => setEditing(false)}>
+        <Button
+          variant="outline"
+          className="min-h-[44px] flex-1 border-zinc-700"
+          onClick={() => setEditing(false)}
+        >
           Cancel
         </Button>
         <Button
@@ -260,7 +328,10 @@ function EditableSetRow({
           onClick={async () => {
             setSaving(true);
             try {
-              await onUpdate({ reps: reps > 0 ? reps : null, weightLbs: weight > 0 ? weight : null });
+              await onUpdate({
+                reps: reps > 0 ? reps : null,
+                weightLbs: weight > 0 ? weight : null,
+              });
               setEditing(false);
             } catch {
               toast.error("Failed to save");
@@ -304,8 +375,9 @@ export default function ActiveWorkoutPage() {
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
   const [pendingNavigateTo, setPendingNavigateTo] = useState<string | null>(null);
 
-  // Flip true after the very first Begin Set tap — unlocks the workout timer
   const [workoutStarted, setWorkoutStarted] = useState(false);
+  const workoutStartedAtRef = useRef<number | null>(null);
+  const [workoutElapsed, setWorkoutElapsed] = useState(0);
 
   const [exerciseStates, setExerciseStates] = useState<Record<string, ExerciseState>>({});
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
@@ -327,21 +399,21 @@ export default function ActiveWorkoutPage() {
     refetch,
   } = useWorkout(workoutId, athleteId ?? "");
 
-  // Tick for exercise timers
+  // Master tick — drives all timers
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    const id = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(id);
   }, []);
 
-  // Overall workout elapsed — only counts once workoutStarted
-  const [workoutElapsed, setWorkoutElapsed] = useState(0);
-  const workoutStartedAtRef = useRef<number | null>(null);
+  // Workout-level elapsed timer
   useEffect(() => {
     if (!workoutStarted) return;
     if (!workoutStartedAtRef.current) workoutStartedAtRef.current = Date.now();
     const id = window.setInterval(() => {
-      setWorkoutElapsed(Math.floor((Date.now() - workoutStartedAtRef.current!) / 1000));
+      setWorkoutElapsed(
+        Math.floor((Date.now() - workoutStartedAtRef.current!) / 1000)
+      );
     }, 1000);
     return () => window.clearInterval(id);
   }, [workoutStarted]);
@@ -355,12 +427,13 @@ export default function ActiveWorkoutPage() {
 
   // Exercise library
   useEffect(() => {
-    supabase.from("exercises").select("id, name, category").then(({ data }) => {
-      setExerciseLibrary((data ?? []) as Exercise[]);
-    });
+    supabase
+      .from("exercises")
+      .select("id, name, category")
+      .then(({ data }) => setExerciseLibrary((data ?? []) as Exercise[]));
   }, [supabase]);
 
-  // Initialize per-exercise state on load
+  // Init per-exercise state on load
   useEffect(() => {
     if (loading) return;
     setExerciseStates((prev) => {
@@ -368,32 +441,113 @@ export default function ActiveWorkoutPage() {
       for (const ex of exercisesInWorkout) {
         const id = ex.exercise.id;
         if (next[id]) continue;
-        const last = ex.logs[ex.logs.length - 1];
-        const lastValues: SetValues = last
-          ? {
-              reps: last.reps,
-              weightLbs: last.weight_lbs != null ? Number(last.weight_lbs) : null,
-              durationSeconds: last.duration_seconds,
-              distanceMeters: last.distance_meters != null ? Number(last.distance_meters) : null,
-              notes: last.notes,
-            }
-          : emptySetValues();
-        next[id] = {
-          stage: ex.logs.length > 0 ? "rest" : "setup",
-          setupValues: lastValues,
-          lastLogId: last?.id ?? null,
-          lastLogValues: lastValues,
-          exerciseStartedAt: ex.logs.length > 0 ? Date.now() : null,
-          beginMessage: pick(BEGIN_MESSAGES),
-          activeMessage: pick(ACTIVE_MESSAGES),
-          restMessage: ex.logs.length > 0 ? pick(REST_MESSAGES) : "",
-        };
+        next[id] = makeInitialState(ex.exercise, ex.logs);
       }
       return next;
     });
   }, [exercisesInWorkout, loading]);
 
-  const updateExerciseState = useCallback(
+  // HIIT auto-advance: watch for phase timer expiry
+  useEffect(() => {
+    if (!activeExerciseId) return;
+    const state = exerciseStates[activeExerciseId];
+    if (!state || !state.phaseStartedAt) return;
+
+    const elapsedSecs = Math.floor((now - state.phaseStartedAt) / 1000);
+
+    if (state.stage === "prestart" && elapsedSecs >= HIIT_PRESTART_SECS) {
+      setExerciseStates((prev) => {
+        const s = prev[activeExerciseId];
+        if (!s || s.stage !== "prestart") return prev;
+        return {
+          ...prev,
+          [activeExerciseId]: {
+            ...s,
+            stage: "intense",
+            phaseStartedAt: Date.now(),
+            cardioSessionStartedAt: s.cardioSessionStartedAt ?? Date.now(),
+          },
+        };
+      });
+    }
+
+    if (state.stage === "intense" && elapsedSecs >= state.hiitIntenseSecs) {
+      setExerciseStates((prev) => {
+        const s = prev[activeExerciseId];
+        if (!s || s.stage !== "intense") return prev;
+        const cyclesCompleted = s.hiitCyclesCompleted + 1;
+        const lastCycle = cyclesCompleted >= s.hiitCycles;
+        return {
+          ...prev,
+          [activeExerciseId]: {
+            ...s,
+            stage: lastCycle ? "celebrate" : "recovery",
+            phaseStartedAt: lastCycle ? null : Date.now(),
+            hiitCyclesCompleted: cyclesCompleted,
+          },
+        };
+      });
+      if (
+        exerciseStates[activeExerciseId]?.hiitCyclesCompleted + 1 >=
+        exerciseStates[activeExerciseId]?.hiitCycles
+      ) {
+        triggerConfetti("pr");
+      }
+    }
+
+    if (state.stage === "recovery" && elapsedSecs >= state.hiitRestSecs) {
+      setExerciseStates((prev) => {
+        const s = prev[activeExerciseId];
+        if (!s || s.stage !== "recovery") return prev;
+        const nextCycle = s.hiitCurrentCycle + 1;
+        return {
+          ...prev,
+          [activeExerciseId]: {
+            ...s,
+            stage: "intense",
+            phaseStartedAt: Date.now(),
+            hiitCurrentCycle: nextCycle,
+          },
+        };
+      });
+    }
+
+    // Timed cardio countdown finished
+    if (state.stage === "countdown" && state.phaseStartedAt) {
+      const totalSecs = state.timedDurationMinutes * 60;
+      const elapsed = Math.floor((now - state.phaseStartedAt) / 1000);
+      if (elapsed >= totalSecs) {
+        setExerciseStates((prev) => {
+          const s = prev[activeExerciseId];
+          if (!s || s.stage !== "countdown") return prev;
+          return { ...prev, [activeExerciseId]: { ...s, stage: "celebrate" } };
+        });
+        triggerConfetti("pr");
+      }
+    }
+
+    // Warmup finished → start countdown
+    if (state.stage === "warmup" && state.phaseStartedAt) {
+      const elapsed = Math.floor((now - state.phaseStartedAt) / 1000);
+      if (elapsed >= WARMUP_SECS) {
+        setExerciseStates((prev) => {
+          const s = prev[activeExerciseId];
+          if (!s || s.stage !== "warmup") return prev;
+          return {
+            ...prev,
+            [activeExerciseId]: {
+              ...s,
+              stage: "countdown",
+              phaseStartedAt: Date.now(),
+              cardioSessionStartedAt: Date.now(),
+            },
+          };
+        });
+      }
+    }
+  }, [now, activeExerciseId, exerciseStates]);
+
+  const updateState = useCallback(
     (id: string, updater: (s: ExerciseState) => ExerciseState) => {
       setExerciseStates((prev) => {
         const cur = prev[id];
@@ -404,66 +558,30 @@ export default function ActiveWorkoutPage() {
     []
   );
 
-  // ── Actions ────────────────────────────────────────────────────────────────
+  // ── Strength actions ───────────────────────────────────────────────────────
 
-  const handleAddExercise = useCallback(
-    (exercise: Exercise) => {
-      addExercise(exercise);
-      setActiveExerciseId(exercise.id);
-      setRestEditMode(null);
-      setShowExerciseSearch(false);
-      setExerciseStates((prev) => {
-        if (prev[exercise.id]) return prev;
-        return {
-          ...prev,
-          [exercise.id]: {
-            stage: "setup",
-            setupValues: emptySetValues(),
-            lastLogId: null,
-            lastLogValues: emptySetValues(),
-            exerciseStartedAt: null,
-            beginMessage: pick(BEGIN_MESSAGES),
-            activeMessage: pick(ACTIVE_MESSAGES),
-            restMessage: "",
-          },
-        };
-      });
-    },
-    [addExercise]
-  );
-
-  /** Begin Set: start exercise timer (only on first tap), enter active stage. */
   const handleBeginSet = useCallback(() => {
     if (!activeExerciseId) return;
     setWorkoutStarted(true);
-    updateExerciseState(activeExerciseId, (s) => ({
+    updateState(activeExerciseId, (s) => ({
       ...s,
       stage: "active",
       activeMessage: pick(ACTIVE_MESSAGES),
       exerciseStartedAt: s.exerciseStartedAt ?? Date.now(),
     }));
     setRestEditMode(null);
-  }, [activeExerciseId, updateExerciseState]);
+  }, [activeExerciseId, updateState]);
 
-  /** End Set: write to DB, confetti, start rest. */
   const handleEndSet = useCallback(async () => {
     if (!activeExerciseId || endingSet) return;
     const state = exerciseStates[activeExerciseId];
     if (!state) return;
-
     setEndingSet(true);
-    const values = state.setupValues;
-
     try {
-      const result = await addSet(activeExerciseId, values, "manual");
+      const result = await addSet(activeExerciseId, state.setupValues, "manual");
       const addResult = result as AddSetResult | null;
-      if (!addResult) {
-        toast.error("Failed to log set");
-        return;
-      }
-
+      if (!addResult) { toast.error("Failed to log set"); return; }
       const { prHint, logId } = addResult;
-
       if (prHint?.isPR && prHint.prType) {
         const k = `${activeExerciseId}-${prHint.prType}`;
         if (!prToastKeysRef.current.has(k)) {
@@ -476,14 +594,13 @@ export default function ActiveWorkoutPage() {
           });
         }
       }
-
       triggerConfetti("badge");
-
-      updateExerciseState(activeExerciseId, (s) => ({
+      updateState(activeExerciseId, (s) => ({
         ...s,
         stage: "rest",
         lastLogId: logId,
-        lastLogValues: values,
+        lastLogValues: s.setupValues,
+        restStartedAt: Date.now(),
         restMessage: pick(REST_MESSAGES),
       }));
       setRestEditMode(null);
@@ -492,37 +609,24 @@ export default function ActiveWorkoutPage() {
     } finally {
       setEndingSet(false);
     }
-  }, [activeExerciseId, endingSet, exerciseStates, addSet, updateExerciseState]);
+  }, [activeExerciseId, endingSet, exerciseStates, addSet, updateState]);
 
-  /** Rest done / Skip rest → back to setup with values pre-loaded. */
   const handleRestDone = useCallback(() => {
     if (!activeExerciseId) return;
-    updateExerciseState(activeExerciseId, (s) => ({
+    updateState(activeExerciseId, (s) => ({
       ...s,
       stage: "setup",
+      restStartedAt: null,
       beginMessage: pick(BEGIN_MESSAGES),
     }));
     setRestEditMode(null);
-  }, [activeExerciseId, updateExerciseState]);
+  }, [activeExerciseId, updateState]);
 
-  /** Next Exercise: move current to done, open search for the next one. */
-  const handleNextExercise = useCallback(() => {
-    if (!activeExerciseId) return;
-    setDoneExerciseIds((prev) =>
-      prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
-    );
-    setActiveExerciseId(null);
-    setRestEditMode(null);
-    setShowExerciseSearch(true);
-  }, [activeExerciseId]);
-
-  /** Edit Last Set: update the DB record that was just written. */
   const handleSaveLastSet = useCallback(
     async (values: SetValues) => {
       if (!activeExerciseId) return;
       const state = exerciseStates[activeExerciseId];
       if (!state?.lastLogId) return;
-
       const { error } = await supabase
         .from("exercise_logs")
         .update({
@@ -533,38 +637,28 @@ export default function ActiveWorkoutPage() {
           notes: values.notes,
         })
         .eq("id", state.lastLogId);
-
-      if (error) {
-        toast.error("Failed to update set");
-        return;
-      }
-
+      if (error) { toast.error("Failed to update set"); return; }
       await refetch();
-
-      updateExerciseState(activeExerciseId, (s) => ({
+      updateState(activeExerciseId, (s) => ({
         ...s,
         lastLogValues: values,
         setupValues: values,
+        // restStartedAt unchanged — rest timer keeps running
       }));
       setRestEditMode(null);
     },
-    [activeExerciseId, exerciseStates, supabase, refetch, updateExerciseState]
+    [activeExerciseId, exerciseStates, supabase, refetch, updateState]
   );
 
-  /** Edit Next Set: local state only — does not touch the DB. */
   const handleSaveNextSet = useCallback(
     (values: SetValues) => {
       if (!activeExerciseId) return;
-      updateExerciseState(activeExerciseId, (s) => ({
-        ...s,
-        setupValues: values,
-      }));
+      updateState(activeExerciseId, (s) => ({ ...s, setupValues: values }));
       setRestEditMode(null);
     },
-    [activeExerciseId, updateExerciseState]
+    [activeExerciseId, updateState]
   );
 
-  /** Update a completed set row (tap-to-edit). */
   const updateLog = useCallback(
     async (logId: string, values: { reps: number | null; weightLbs: number | null }) => {
       await supabase
@@ -574,6 +668,107 @@ export default function ActiveWorkoutPage() {
       await refetch();
     },
     [supabase, refetch]
+  );
+
+  // ── Cardio actions ─────────────────────────────────────────────────────────
+
+  /** Timed: begin → warmup phase */
+  const handleTimedBegin = useCallback(() => {
+    if (!activeExerciseId) return;
+    setWorkoutStarted(true);
+    updateState(activeExerciseId, (s) => ({
+      ...s,
+      stage: "warmup",
+      phaseStartedAt: Date.now(),
+    }));
+  }, [activeExerciseId, updateState]);
+
+  /** Timed: tap button during countdown = early stop, still celebrate */
+  const handleTimedStop = useCallback(async () => {
+    if (!activeExerciseId) return;
+    const state = exerciseStates[activeExerciseId];
+    if (!state) return;
+    const elapsed =
+      state.cardioSessionStartedAt
+        ? Math.floor((Date.now() - state.cardioSessionStartedAt) / 1000)
+        : 0;
+    await addSet(
+      activeExerciseId,
+      { ...emptySetValues(), durationSeconds: elapsed, notes: state.timedNotes || null },
+      "manual"
+    );
+    triggerConfetti("pr");
+    updateState(activeExerciseId, (s) => ({ ...s, stage: "celebrate" }));
+  }, [activeExerciseId, exerciseStates, addSet, updateState]);
+
+  /** HIIT: begin → 10s pre-start countdown */
+  const handleHiitBegin = useCallback(() => {
+    if (!activeExerciseId) return;
+    setWorkoutStarted(true);
+    updateState(activeExerciseId, (s) => ({
+      ...s,
+      stage: "prestart",
+      phaseStartedAt: Date.now(),
+      hiitCurrentCycle: 0,
+      hiitCyclesCompleted: 0,
+    }));
+  }, [activeExerciseId, updateState]);
+
+  /** HIIT: stop at any phase — log what was done, no celebration */
+  const handleHiitStop = useCallback(async () => {
+    if (!activeExerciseId) return;
+    const state = exerciseStates[activeExerciseId];
+    if (!state) return;
+    const elapsed =
+      state.cardioSessionStartedAt
+        ? Math.floor((Date.now() - state.cardioSessionStartedAt) / 1000)
+        : 0;
+    const cycleInfo = `${state.hiitCyclesCompleted} of ${state.hiitCycles} cycles completed`;
+    await addSet(
+      activeExerciseId,
+      {
+        ...emptySetValues(),
+        durationSeconds: elapsed,
+        notes: state.timedNotes
+          ? `${cycleInfo} — ${state.timedNotes}`
+          : cycleInfo,
+      },
+      "manual"
+    );
+    updateState(activeExerciseId, (s) => ({
+      ...s,
+      stage: "setup",
+      phaseStartedAt: null,
+      hiitCurrentCycle: 0,
+      hiitCyclesCompleted: 0,
+      cardioSessionStartedAt: null,
+    }));
+  }, [activeExerciseId, exerciseStates, addSet, updateState]);
+
+  // ── Move on / finish ───────────────────────────────────────────────────────
+
+  const handleNextExercise = useCallback(() => {
+    if (!activeExerciseId) return;
+    setDoneExerciseIds((prev) =>
+      prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
+    );
+    setActiveExerciseId(null);
+    setRestEditMode(null);
+    setShowExerciseSearch(true);
+  }, [activeExerciseId]);
+
+  const handleAddExercise = useCallback(
+    (exercise: Exercise) => {
+      addExercise(exercise);
+      setActiveExerciseId(exercise.id);
+      setRestEditMode(null);
+      setShowExerciseSearch(false);
+      setExerciseStates((prev) => {
+        if (prev[exercise.id]) return prev;
+        return { ...prev, [exercise.id]: makeInitialState(exercise, []) };
+      });
+    },
+    [addExercise]
   );
 
   const handleFinish = useCallback(
@@ -607,16 +802,13 @@ export default function ActiveWorkoutPage() {
     () => exercisesInWorkout.find((e) => e.exercise.id === activeExerciseId) ?? null,
     [activeExerciseId, exercisesInWorkout]
   );
-  const activeState = activeExerciseId ? (exerciseStates[activeExerciseId] ?? null) : null;
+  const activeState = activeExerciseId
+    ? (exerciseStates[activeExerciseId] ?? null)
+    : null;
   const activeStage = activeState?.stage ?? null;
 
-  const exerciseTimerDisplay = useMemo(() => {
-    if (!activeState?.exerciseStartedAt) return null;
-    return formatElapsed(Math.floor((now - activeState.exerciseStartedAt) / 1000));
-  }, [activeState, now]);
-
   const workoutTimerDisplay = useMemo(
-    () => (workoutStarted ? formatElapsed(workoutElapsed) : null),
+    () => (workoutStarted ? formatSecs(workoutElapsed) : null),
     [workoutStarted, workoutElapsed]
   );
 
@@ -631,7 +823,7 @@ export default function ActiveWorkoutPage() {
     ? Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 60000))
     : 0;
 
-  // ── Guard renders ──────────────────────────────────────────────────────────
+  // ── Guards ─────────────────────────────────────────────────────────────────
 
   if (loading || !workout) {
     return (
@@ -663,22 +855,29 @@ export default function ActiveWorkoutPage() {
 
   // ── Render helpers ─────────────────────────────────────────────────────────
 
-  const renderExerciseHeader = (exercise: Exercise, logs: ExerciseLog[]) => (
-    <div className="space-y-1">
-      <h2 className="truncate text-2xl font-bold text-zinc-100">{exercise.name}</h2>
-      {(logs.length > 0 || exerciseTimerDisplay) && (
-        <div className="flex flex-wrap items-center gap-3">
-          {logs.length > 0 && <DotsIndicator count={logs.length} />}
-          {exerciseTimerDisplay && (
-            <span className="flex items-center gap-1 text-xs text-zinc-500">
-              <Timer className="h-3 w-3" />
-              {exerciseTimerDisplay}
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  const renderHeader = (exercise: Exercise, logs: ExerciseLog[]) => {
+    const state = exerciseStates[exercise.id];
+    const exTimer =
+      state?.exerciseStartedAt
+        ? formatSecs(Math.floor((now - state.exerciseStartedAt) / 1000))
+        : null;
+    return (
+      <div className="space-y-1">
+        <h2 className="truncate text-2xl font-bold text-zinc-100">{exercise.name}</h2>
+        {(logs.length > 0 || exTimer) && (
+          <div className="flex flex-wrap items-center gap-3">
+            {logs.length > 0 && <DotsIndicator count={logs.length} />}
+            {exTimer && (
+              <span className="flex items-center gap-1 text-xs text-zinc-500">
+                <Timer className="h-3 w-3" />
+                {exTimer}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderSetLog = (logs: ExerciseLog[]) =>
     logs.length > 0 ? (
@@ -689,20 +888,20 @@ export default function ActiveWorkoutPage() {
       </div>
     ) : null;
 
-  // ── Stage renders ──────────────────────────────────────────────────────────
+  // ── Strength stages ────────────────────────────────────────────────────────
 
-  const renderActiveExercise = () => {
+  const renderStrength = () => {
     if (!activeExercise || !activeState) return null;
     const { exercise, logs } = activeExercise;
-    const { stage, setupValues, lastLogId, lastLogValues } = activeState;
+    const { stage, setupValues, lastLogId, lastLogValues, restStartedAt } = activeState;
 
-    // ── ACTIVE: red circle only — nothing else ───────────────────────────────
+    // Active: red circle only
     if (stage === "active") {
       return (
         <div className="space-y-6 py-4">
-          {renderExerciseHeader(exercise, logs)}
-          <CircleActionButton
-            variant="red"
+          {renderHeader(exercise, logs)}
+          <CircleButton
+            color="red"
             message={activeState.activeMessage}
             onClick={handleEndSet}
             disabled={endingSet}
@@ -711,21 +910,22 @@ export default function ActiveWorkoutPage() {
       );
     }
 
-    // ── SETUP: drums + green circle ──────────────────────────────────────────
+    // Setup
     if (stage === "setup") {
-      const setNumber = logs.length + 1;
       return (
         <div className="space-y-4">
-          {renderExerciseHeader(exercise, logs)}
+          {renderHeader(exercise, logs)}
           {logs.length > 0 && (
-            <div className="text-center text-sm text-zinc-500">Set {setNumber}</div>
+            <div className="text-center text-sm text-zinc-500">
+              Set {logs.length + 1}
+            </div>
           )}
           <SetupDrums
             values={setupValues}
-            onChange={(v) => updateExerciseState(exercise.id, (s) => ({ ...s, setupValues: v }))}
+            onChange={(v) => updateState(exercise.id, (s) => ({ ...s, setupValues: v }))}
           />
-          <CircleActionButton
-            variant="green"
+          <CircleButton
+            color="green"
             message={activeState.beginMessage}
             onClick={handleBeginSet}
           />
@@ -734,90 +934,108 @@ export default function ActiveWorkoutPage() {
       );
     }
 
-    // ── REST: Edit Last Set form ──────────────────────────────────────────────
-    if (stage === "rest" && restEditMode === "last" && lastLogId) {
-      return (
-        <div className="space-y-4">
-          {renderExerciseHeader(exercise, logs)}
-          <div className="space-y-3 rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
-            <div className="text-sm font-medium text-zinc-300">
-              What did you actually do?
-            </div>
-            <SetupDrums
-              values={lastLogValues}
-              onChange={(v) =>
-                updateExerciseState(exercise.id, (s) => ({ ...s, lastLogValues: v }))
-              }
-            />
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="min-h-[44px] flex-1 border-zinc-700"
-                onClick={() => setRestEditMode(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="min-h-[44px] flex-1"
-                onClick={() => handleSaveLastSet(lastLogValues)}
-              >
-                Save
-              </Button>
-            </div>
-          </div>
-          {renderSetLog(logs)}
-        </div>
-      );
-    }
-
-    // ── REST: Edit Next Set form ──────────────────────────────────────────────
-    if (stage === "rest" && restEditMode === "next") {
-      return (
-        <div className="space-y-4">
-          {renderExerciseHeader(exercise, logs)}
-          <div className="space-y-3 rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
-            <div className="text-sm font-medium text-zinc-300">
-              Set {logs.length + 1} — adjust before you start
-            </div>
-            <SetupDrums
-              values={setupValues}
-              onChange={(v) =>
-                updateExerciseState(exercise.id, (s) => ({ ...s, setupValues: v }))
-              }
-            />
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="min-h-[44px] flex-1 border-zinc-700"
-                onClick={() => setRestEditMode(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="min-h-[44px] flex-1"
-                onClick={() => handleSaveNextSet(setupValues)}
-              >
-                Done
-              </Button>
-            </div>
-          </div>
-          {renderSetLog(logs)}
-        </div>
-      );
-    }
-
-    // ── REST: default ─────────────────────────────────────────────────────────
+    // Rest — restStartedAt drives the countdown; edit forms don't reset it
     if (stage === "rest") {
+      const restElapsed = restStartedAt
+        ? Math.floor((now - restStartedAt) / 1000)
+        : REST_DURATION_SECS;
+      const restLeft = Math.max(0, REST_DURATION_SECS - restElapsed);
+
+      if (restLeft === 0 && restEditMode === null) {
+        // Auto-advance when rest expires (only if not in an edit form)
+        setTimeout(() => handleRestDone(), 0);
+      }
+
+      const rm = Math.floor(restLeft / 60);
+      const rs = restLeft % 60;
+
+      // Edit Last Set
+      if (restEditMode === "last" && lastLogId) {
+        return (
+          <div className="space-y-4">
+            {renderHeader(exercise, logs)}
+            <div className="space-y-3 rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
+              <div className="text-sm font-medium text-zinc-300">
+                What did you actually do?
+              </div>
+              <SetupDrums
+                values={lastLogValues}
+                onChange={(v) =>
+                  updateState(exercise.id, (s) => ({ ...s, lastLogValues: v }))
+                }
+              />
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] flex-1 border-zinc-700"
+                  onClick={() => setRestEditMode(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="min-h-[44px] flex-1"
+                  onClick={() => handleSaveLastSet(lastLogValues)}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+            {renderSetLog(logs)}
+          </div>
+        );
+      }
+
+      // Edit Next Set
+      if (restEditMode === "next") {
+        return (
+          <div className="space-y-4">
+            {renderHeader(exercise, logs)}
+            <div className="space-y-3 rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
+              <div className="text-sm font-medium text-zinc-300">
+                Set {logs.length + 1} — adjust before you start
+              </div>
+              <SetupDrums
+                values={setupValues}
+                onChange={(v) =>
+                  updateState(exercise.id, (s) => ({ ...s, setupValues: v }))
+                }
+              />
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] flex-1 border-zinc-700"
+                  onClick={() => setRestEditMode(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="min-h-[44px] flex-1"
+                  onClick={() => handleSaveNextSet(setupValues)}
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+            {renderSetLog(logs)}
+          </div>
+        );
+      }
+
+      // Default rest
       return (
         <div className="space-y-4">
-          {renderExerciseHeader(exercise, logs)}
+          {renderHeader(exercise, logs)}
           {activeState.restMessage && (
             <div className="text-center text-base font-semibold text-zinc-200">
               {activeState.restMessage}
             </div>
           )}
-          <RestCountdown initialSeconds={60} onDone={handleRestDone} />
-          {/* Skip Rest directly under the timer */}
+          <div className="flex flex-col items-center gap-1">
+            <div className="text-6xl font-bold tabular-nums text-zinc-100">
+              {rm}:{rs.toString().padStart(2, "0")}
+            </div>
+            <div className="text-xs uppercase tracking-widest text-zinc-500">rest</div>
+          </div>
           <Button
             className="w-full min-h-[44px] bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
             onClick={handleRestDone}
@@ -848,7 +1066,282 @@ export default function ActiveWorkoutPage() {
     return null;
   };
 
-  // ── Done exercise pills ────────────────────────────────────────────────────
+  // ── Cardio stages ──────────────────────────────────────────────────────────
+
+  const renderCardio = () => {
+    if (!activeExercise || !activeState) return null;
+    const { exercise, logs } = activeExercise;
+    const { stage, cardioMode, timedDurationMinutes, timedNotes,
+            hiitIntenseSecs, hiitRestSecs, hiitCycles,
+            phaseStartedAt, hiitCurrentCycle, hiitCyclesCompleted } = activeState;
+
+    // ── Setup ──────────────────────────────────────────────────────────────
+    if (stage === "setup") {
+      const hiitTotal = hiitTotalMinutes(hiitIntenseSecs, hiitRestSecs, hiitCycles);
+      return (
+        <div className="space-y-5">
+          {renderHeader(exercise, logs)}
+
+          {/* Mode toggle */}
+          <div className="flex rounded-lg border border-zinc-700 overflow-hidden">
+            {(["timed", "hiit"] as CardioMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => updateState(exercise.id, (s) => ({ ...s, cardioMode: m }))}
+                className={[
+                  "flex-1 min-h-[44px] text-sm font-semibold uppercase tracking-wider transition-colors",
+                  cardioMode === m
+                    ? "bg-zinc-100 text-zinc-900"
+                    : "bg-transparent text-zinc-500 hover:text-zinc-300",
+                ].join(" ")}
+              >
+                {m === "timed" ? "Timed" : "HIIT"}
+              </button>
+            ))}
+          </div>
+
+          {cardioMode === "timed" ? (
+            <div className="space-y-4">
+              <DrumInput
+                value={timedDurationMinutes}
+                onChange={(v) =>
+                  updateState(exercise.id, (s) => ({ ...s, timedDurationMinutes: Math.max(1, v) }))
+                }
+                label="Duration"
+                unit="min"
+                min={1}
+                max={120}
+                step={1}
+              />
+              <div>
+                <label className="mb-1 block text-xs text-zinc-500">Notes / resistance</label>
+                <input
+                  type="text"
+                  value={timedNotes}
+                  onChange={(e) =>
+                    updateState(exercise.id, (s) => ({ ...s, timedNotes: e.target.value }))
+                  }
+                  placeholder="e.g. Level 8, 85 rpm..."
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+                />
+              </div>
+              <CircleButton color="green" message="LET'S RIDE 🐺" onClick={handleTimedBegin} />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <DrumInput
+                  value={hiitIntenseSecs}
+                  onChange={(v) =>
+                    updateState(exercise.id, (s) => ({ ...s, hiitIntenseSecs: Math.max(10, v) }))
+                  }
+                  label="Intense"
+                  unit="sec"
+                  min={10}
+                  max={300}
+                  step={5}
+                />
+                <DrumInput
+                  value={hiitRestSecs}
+                  onChange={(v) =>
+                    updateState(exercise.id, (s) => ({ ...s, hiitRestSecs: Math.max(5, v) }))
+                  }
+                  label="Rest"
+                  unit="sec"
+                  min={5}
+                  max={120}
+                  step={5}
+                />
+                <DrumInput
+                  value={hiitCycles}
+                  onChange={(v) =>
+                    updateState(exercise.id, (s) => ({ ...s, hiitCycles: Math.max(1, v) }))
+                  }
+                  label="Cycles"
+                  min={1}
+                  max={50}
+                  step={1}
+                />
+              </div>
+              <div className="text-center text-sm text-zinc-400">
+                ≈ {hiitTotal} min total
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-zinc-500">Notes / resistance</label>
+                <input
+                  type="text"
+                  value={timedNotes}
+                  onChange={(e) =>
+                    updateState(exercise.id, (s) => ({ ...s, timedNotes: e.target.value }))
+                  }
+                  placeholder="e.g. Level 8, 85 rpm..."
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+                />
+              </div>
+              <CircleButton color="green" message="LET'S GO 🐺" onClick={handleHiitBegin} />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ── Timed: warmup ──────────────────────────────────────────────────────
+    if (stage === "warmup") {
+      const elapsed = phaseStartedAt
+        ? Math.floor((now - phaseStartedAt) / 1000)
+        : 0;
+      const left = Math.max(0, WARMUP_SECS - elapsed);
+      return (
+        <div className="space-y-6 py-4">
+          {renderHeader(exercise, logs)}
+          <div className="flex flex-col items-center gap-2">
+            <div className="text-5xl font-bold tabular-nums text-zinc-100">
+              {formatSecs(left)}
+            </div>
+            <div className="text-xs uppercase tracking-widest text-zinc-500">
+              warm up
+            </div>
+          </div>
+          <div className="text-center text-2xl font-bold text-green-400">
+            GET MOVING 🐺
+          </div>
+        </div>
+      );
+    }
+
+    // ── Timed: countdown ──────────────────────────────────────────────────
+    if (stage === "countdown") {
+      const totalSecs = timedDurationMinutes * 60;
+      const elapsed = phaseStartedAt
+        ? Math.floor((now - phaseStartedAt) / 1000)
+        : 0;
+      const remaining = Math.max(0, totalSecs - elapsed);
+      const msg = timedButtonMessage(elapsed, remaining);
+      return (
+        <div className="space-y-6 py-4">
+          {renderHeader(exercise, logs)}
+          <div className="flex flex-col items-center gap-2">
+            <div className="text-6xl font-bold tabular-nums text-zinc-100">
+              {formatSecs(remaining)}
+            </div>
+            <div className="text-xs uppercase tracking-widest text-zinc-500">
+              remaining
+            </div>
+          </div>
+          <CircleButton color="red" message={msg} onClick={handleTimedStop} />
+        </div>
+      );
+    }
+
+    // ── HIIT: pre-start ───────────────────────────────────────────────────
+    if (stage === "prestart") {
+      const elapsed = phaseStartedAt ? Math.floor((now - phaseStartedAt) / 1000) : 0;
+      const left = Math.max(0, HIIT_PRESTART_SECS - elapsed);
+      return (
+        <div className="space-y-6 py-4">
+          {renderHeader(exercise, logs)}
+          <div className="flex flex-col items-center gap-2">
+            <div className="text-6xl font-bold tabular-nums text-zinc-100">{left}</div>
+            <div className="text-xs uppercase tracking-widest text-zinc-500">
+              get ready
+            </div>
+          </div>
+          <div className="text-center text-sm text-zinc-400">
+            {hiitCycles} cycles · {hiitIntenseSecs}s on / {hiitRestSecs}s off
+          </div>
+          <Button
+            variant="outline"
+            className="w-full min-h-[44px] border-zinc-700 text-zinc-400"
+            onClick={handleHiitStop}
+          >
+            Cancel
+          </Button>
+        </div>
+      );
+    }
+
+    // ── HIIT: intense ─────────────────────────────────────────────────────
+    if (stage === "intense") {
+      const elapsed = phaseStartedAt ? Math.floor((now - phaseStartedAt) / 1000) : 0;
+      const left = Math.max(0, hiitIntenseSecs - elapsed);
+      return (
+        <div className="space-y-4 py-4">
+          {renderHeader(exercise, logs)}
+          <div className="text-center text-sm text-zinc-400">
+            Cycle {hiitCyclesCompleted + 1} of {hiitCycles}
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <div className="text-6xl font-bold tabular-nums text-green-400">
+              {formatSecs(left)}
+            </div>
+            <div className="text-xs uppercase tracking-widest text-green-600">
+              intense
+            </div>
+          </div>
+          <CircleButton color="green" message="STOP" onClick={handleHiitStop} />
+        </div>
+      );
+    }
+
+    // ── HIIT: recovery ────────────────────────────────────────────────────
+    if (stage === "recovery") {
+      const elapsed = phaseStartedAt ? Math.floor((now - phaseStartedAt) / 1000) : 0;
+      const left = Math.max(0, hiitRestSecs - elapsed);
+      const comingUp = left <= 10;
+      return (
+        <div className="space-y-4 py-4">
+          {renderHeader(exercise, logs)}
+          <div className="text-center text-sm text-zinc-400">
+            Cycle {hiitCyclesCompleted + 1} of {hiitCycles} next
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <div
+              className={[
+                "text-6xl font-bold tabular-nums",
+                comingUp ? "text-yellow-400" : "text-orange-400",
+              ].join(" ")}
+            >
+              {formatSecs(left)}
+            </div>
+            <div
+              className={[
+                "text-xs uppercase tracking-widest",
+                comingUp ? "text-yellow-600" : "text-orange-600",
+              ].join(" ")}
+            >
+              {comingUp ? "COMING UP…" : "recovery"}
+            </div>
+          </div>
+          <CircleButton color="orange" message="STOP" onClick={handleHiitStop} />
+        </div>
+      );
+    }
+
+    // ── Celebrate ─────────────────────────────────────────────────────────
+    if (stage === "celebrate") {
+      const isHiit = cardioMode === "hiit";
+      return (
+        <div className="space-y-4 py-6 text-center">
+          {renderHeader(exercise, logs)}
+          <div className="text-4xl font-extrabold text-zinc-100">
+            {isHiit
+              ? `${hiitCyclesCompleted} cycles done! 🐺`
+              : "You did it! 🎉"}
+          </div>
+          <div className="text-zinc-400 text-sm">
+            {isHiit
+              ? `${hiitIntenseSecs}s on / ${hiitRestSecs}s off`
+              : `${timedDurationMinutes} min`}
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  // ── Done pills ─────────────────────────────────────────────────────────────
 
   const renderDoneExercises = () => {
     if (!doneExerciseIds.length) return null;
@@ -865,7 +1358,9 @@ export default function ActiveWorkoutPage() {
                 className="flex w-full items-center justify-between rounded-full border border-green-500/30 bg-green-600/15 px-4 py-3 text-zinc-100 active:bg-green-600/25"
                 onClick={() => setExpandedDoneId((prev) => (prev === id ? null : id))}
               >
-                <span className="min-w-0 truncate text-sm font-semibold">{ex.exercise.name}</span>
+                <span className="min-w-0 truncate text-sm font-semibold">
+                  {ex.exercise.name}
+                </span>
                 <div className="flex shrink-0 items-center gap-2">
                   <DotsIndicator count={ex.logs.length} />
                   <ChevronRight
@@ -891,13 +1386,21 @@ export default function ActiveWorkoutPage() {
     );
   };
 
+  // Is the current stage one where tapping away would be disruptive?
+  const isActiveStage =
+    activeStage === "active" ||
+    activeStage === "warmup" ||
+    activeStage === "countdown" ||
+    activeStage === "intense" ||
+    activeStage === "recovery" ||
+    activeStage === "prestart";
+
   // ── Main render ────────────────────────────────────────────────────────────
 
   return (
     <>
-      {/* Main scroll area — extra bottom padding for fixed "Next Exercise" bar */}
       <div className="space-y-4 pb-32">
-        {/* Top bar: workout timer (only after first Begin Set) + Finish */}
+        {/* Top bar */}
         <header className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-background py-2">
           <div className="tabular-nums font-mono text-lg text-zinc-200">
             {workoutTimerDisplay ?? ""}
@@ -911,13 +1414,12 @@ export default function ActiveWorkoutPage() {
           </Button>
         </header>
 
-        {/* Active exercise card */}
+        {/* Active exercise */}
         {activeExercise && activeState ? (
           <div className="rounded-xl border border-zinc-800 bg-card/30 p-4">
-            {renderActiveExercise()}
+            {isCardio(activeExercise.exercise) ? renderCardio() : renderStrength()}
           </div>
         ) : (
-          /* No active exercise — pick one */
           <div className="rounded-xl border-2 border-dashed border-zinc-700 p-8 text-center">
             <p className="mb-6 text-zinc-400">
               {doneExerciseIds.length > 0
@@ -934,16 +1436,27 @@ export default function ActiveWorkoutPage() {
           </div>
         )}
 
-        {/* Done exercises */}
         {renderDoneExercises()}
       </div>
 
-      {/* "Next Exercise" — fixed just above the bottom nav, hidden during active set */}
-      {activeExercise && activeStage !== "active" && (
+      {/* Next Exercise — fixed above tabs, hidden during active/timed/hiit phases */}
+      {activeExercise && !isActiveStage && activeStage !== "celebrate" && (
         <div className="fixed bottom-14 left-0 right-0 z-40 border-t border-zinc-800 bg-background px-4 py-2">
           <Button
             variant="outline"
             className="w-full min-h-[44px] border-zinc-700 text-zinc-300"
+            onClick={handleNextExercise}
+          >
+            Next Exercise
+          </Button>
+        </div>
+      )}
+
+      {/* After celebrate, show Next Exercise */}
+      {activeExercise && activeStage === "celebrate" && (
+        <div className="fixed bottom-14 left-0 right-0 z-40 border-t border-zinc-800 bg-background px-4 py-2">
+          <Button
+            className="w-full min-h-[44px]"
             onClick={handleNextExercise}
           >
             Next Exercise
@@ -958,14 +1471,17 @@ export default function ActiveWorkoutPage() {
         onSelect={handleAddExercise}
       />
 
-      {/* Finish workout confirm */}
       <Dialog open={showFinishConfirm} onOpenChange={setShowFinishConfirm}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>End workout?</DialogTitle>
           </DialogHeader>
           <DialogFooter className="flex gap-2">
-            <Button variant="outline" onClick={() => setShowFinishConfirm(false)} className="flex-1">
+            <Button
+              variant="outline"
+              onClick={() => setShowFinishConfirm(false)}
+              className="flex-1"
+            >
               Keep Going
             </Button>
             <Button
@@ -981,7 +1497,6 @@ export default function ActiveWorkoutPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Abandon workout confirm — triggered by nav tap during active workout */}
       <Dialog
         open={showAbandonConfirm}
         onOpenChange={(open) => {
@@ -996,7 +1511,8 @@ export default function ActiveWorkoutPage() {
             <DialogTitle>Abandon workout?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-zinc-400 px-1">
-            You have a workout in progress. If you leave now, your logged sets will be saved but the workout won&apos;t be marked complete.
+            You have a workout in progress. Your logged sets are saved but the workout
+            won&apos;t be marked complete.
           </p>
           <DialogFooter className="flex gap-2">
             <Button
