@@ -213,6 +213,30 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
 
       const logId = (inserted as { id: string }).id;
 
+      // Optimistic update — append new log to local state immediately so
+      // the UI reflects the set without waiting for a full refetch.
+      const optimisticLog = {
+        id: logId,
+        workout_log_id: workoutId,
+        exercise_id: exerciseId,
+        set_number: nextSetNumber,
+        reps: payload.reps,
+        weight_lbs: payload.weightLbs,
+        duration_seconds: payload.durationSeconds,
+        distance_meters: payload.distanceMeters,
+        notes: payload.notes,
+        logged_via: loggedVia,
+        created_at: new Date().toISOString(),
+      } as ExerciseLog;
+
+      setExercises((prev) =>
+        prev.map((e) =>
+          e.exercise.id === exerciseId
+            ? { ...e, logs: [...e.logs, optimisticLog] }
+            : e
+        )
+      );
+
       if (loggedVia === "voice") {
         try {
           await fetch(`/api/workouts/${workoutId}/exercise-logs`, {
@@ -255,7 +279,6 @@ export function useWorkout(workoutId: string | null, athleteId: string) {
         /* ignore */
       }
 
-      await fetchWorkout();
       return { prHint, logId, setNumber: nextSetNumber };
     },
     [workoutId, exercises, supabase, fetchWorkout]
