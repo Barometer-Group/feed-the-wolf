@@ -23,6 +23,9 @@ export function BottomNav({ isTrainerMode }: { isTrainerMode: boolean }) {
   const pathname = usePathname();
   const items = isTrainerMode ? trainerItems : athleteItems;
 
+  // Lock nav when inside an active workout (/log/[workoutId])
+  const inActiveWorkout = /^\/log\/.+/.test(pathname);
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background lg:hidden">
       <div
@@ -31,6 +34,20 @@ export function BottomNav({ isTrainerMode }: { isTrainerMode: boolean }) {
       >
         {items.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href || pathname.startsWith(href + "/");
+
+          if (inActiveWorkout) {
+            // Greyed out, non-interactive during active workout
+            return (
+              <div
+                key={href}
+                className="flex min-h-[44px] w-full max-w-[72px] flex-col items-center justify-center gap-0.5 px-0.5 text-[10px] font-medium leading-tight opacity-30"
+              >
+                <Icon className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
+                <span className="line-clamp-1 text-center">{label}</span>
+              </div>
+            );
+          }
+
           return (
             <Link
               key={href}
