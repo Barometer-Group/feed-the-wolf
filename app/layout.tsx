@@ -1,6 +1,19 @@
 import type { Metadata, Viewport } from "next";
+import { Space_Grotesk, Manrope } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-space-grotesk",
+  display: "swap",
+});
+
+const manrope = Manrope({
+  subsets: ["latin"],
+  variable: "--font-manrope",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Feed the Wolf",
@@ -17,7 +30,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#161618",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -30,8 +43,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-background font-sans antialiased">
+    <html lang="en" className={`dark ${spaceGrotesk.variable} ${manrope.variable}`}>
+      <body className="min-h-screen bg-background font-body antialiased">
         {children}
         <Toaster richColors position="top-center" />
       </body>

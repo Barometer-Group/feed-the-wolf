@@ -360,15 +360,15 @@ function AthleteDashboardView({
 
       {/* Hero: greeting + streak */}
       <div className="pt-1">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+        <h1 className="font-display text-3xl font-bold tracking-tight text-foreground">
           Hey, {userName.split(" ")[0]}
         </h1>
         {data.currentStreak > 0 ? (
-          <p className="mt-1 text-base font-semibold text-amber-400">
+          <p className="mt-1 text-base font-semibold text-volt">
             {data.currentStreak}-day streak
           </p>
         ) : (
-          <p className="mt-1 text-sm text-zinc-500">Start a streak today</p>
+          <p className="mt-1 text-sm text-muted-foreground">Start a streak today</p>
         )}
       </div>
 
@@ -379,11 +379,11 @@ function AthleteDashboardView({
             <div
               className={`h-8 w-8 rounded-full border-2 transition-colors ${
                 filled
-                  ? "border-green-500 bg-green-500/30"
-                  : "border-zinc-700 bg-transparent"
+                  ? "border-volt bg-volt/20"
+                  : "border-surface-high bg-transparent"
               }`}
             />
-            <span className="text-[10px] text-zinc-500">{dayLabels[i]}</span>
+            <span className="text-[10px] text-muted-foreground">{dayLabels[i]}</span>
           </div>
         ))}
       </div>
@@ -393,7 +393,7 @@ function AthleteDashboardView({
         type="button"
         onClick={startAdHoc}
         disabled={starting}
-        className="flex min-h-[72px] w-full items-center justify-center rounded-2xl bg-green-600 text-xl font-black uppercase tracking-widest text-white shadow-lg transition-colors active:bg-green-700 disabled:opacity-60"
+        className="flex min-h-[72px] w-full items-center justify-center rounded-2xl bg-volt font-display text-xl font-black uppercase tracking-widest text-[#0e0e0f] shadow-lg transition-transform active:scale-95 disabled:opacity-60"
       >
         {starting ? "Starting…" : "Start Workout"}
       </button>
@@ -404,34 +404,34 @@ function AthleteDashboardView({
           type="button"
           onClick={() => onStartPlan(data.nextPlan!.id)}
           disabled={starting}
-          className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm font-medium text-zinc-200 active:bg-zinc-800 disabled:opacity-60"
+          className="flex min-h-[48px] w-full items-center justify-between rounded-xl bg-surface-low px-4 text-sm font-medium text-foreground active:bg-surface-mid disabled:opacity-60"
         >
           <span>
-            <span className="text-zinc-500">From plan: </span>
+            <span className="text-muted-foreground">From plan: </span>
             {data.nextPlan.name}
           </span>
-          <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
         </button>
       )}
 
       {/* Level + progress */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 px-4 py-3">
+      <div className="rounded-xl bg-surface-low px-4 py-3">
         <div className="mb-2 flex items-baseline justify-between">
-          <span className="text-sm font-semibold text-zinc-200">
+          <span className="text-sm font-semibold text-foreground">
             Level {data.level} — {data.levelName}
           </span>
-          <span className="text-xs text-zinc-500">
+          <span className="text-xs text-muted-foreground">
             {data.totalPoints.toLocaleString()} pts
           </span>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+        <div className="h-2 overflow-hidden rounded-full bg-surface-high">
           <div
-            className="h-full rounded-full bg-sky-500 transition-all"
+            className="h-full rounded-full bg-electric transition-all"
             style={{ width: `${data.progressPct}%` }}
           />
         </div>
         {data.nextLevelMin != null && (
-          <p className="mt-1.5 text-right text-[11px] text-zinc-600">
+          <p className="mt-1.5 text-right text-[11px] text-muted-foreground">
             {data.pointsToNext.toLocaleString()} to next level
           </p>
         )}
@@ -439,27 +439,27 @@ function AthleteDashboardView({
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-center">
-          <p className="text-xl font-bold text-zinc-100">{data.weekWorkouts}</p>
-          <p className="text-[11px] text-zinc-500">This week</p>
+        <div className="rounded-xl bg-surface-low p-3 text-center">
+          <p className="text-xl font-bold text-foreground">{data.weekWorkouts}</p>
+          <p className="text-[11px] text-muted-foreground">This week</p>
         </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-center">
-          <p className="text-lg font-bold text-zinc-100">
+        <div className="rounded-xl bg-surface-low p-3 text-center">
+          <p className="text-lg font-bold text-foreground">
             {data.weekVolume > 999
               ? `${(data.weekVolume / 1000).toFixed(1)}k`
               : data.weekVolume.toLocaleString()}
           </p>
-          <p className="text-[11px] text-zinc-500">Vol (lbs)</p>
+          <p className="text-[11px] text-muted-foreground">Vol (lbs)</p>
         </div>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-center">
-          <p className="text-xl font-bold text-zinc-100">{data.totalWorkouts}</p>
-          <p className="text-[11px] text-zinc-500">All time</p>
+        <div className="rounded-xl bg-surface-low p-3 text-center">
+          <p className="text-xl font-bold text-foreground">{data.totalWorkouts}</p>
+          <p className="text-[11px] text-muted-foreground">All time</p>
         </div>
       </div>
 
       {/* Recent workouts */}
       <div>
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Recent workouts
         </h2>
         {data.recentWorkouts.length === 0 ? (

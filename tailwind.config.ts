@@ -48,6 +48,24 @@ const config: Config = {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+
+        /* ── Kinetic Editorial named palette ─────────────────────────────── */
+        volt:    "#c3f400",   /* Volt Lime  — go / success */
+        electric: "#8ff5ff",  /* Electric Blue — progress / links */
+        solar:   "#ff7350",   /* Solar Crush — intensity / error */
+
+        /* Surface tiers (for use alongside hsl vars) */
+        surface: {
+          DEFAULT: "hsl(240 5% 9%)",      /* same as --background */
+          low:     "hsl(240 4% 12%)",     /* same as --card */
+          mid:     "hsl(240 3% 16%)",     /* same as --muted */
+          high:    "hsl(240 3% 20%)",     /* one step above mid */
+        },
+      },
+      fontFamily: {
+        display: ["var(--font-space-grotesk)", "system-ui", "sans-serif"],
+        body:    ["var(--font-manrope)",       "system-ui", "sans-serif"],
+        sans:    ["var(--font-manrope)",       "system-ui", "sans-serif"],
       },
     },
   },

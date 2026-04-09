@@ -220,9 +220,9 @@ function CircleButton({
   disabled?: boolean;
 }) {
   const colors = {
-    green: "bg-green-500 hover:bg-green-400 active:bg-green-600",
-    red: "bg-red-500 hover:bg-red-400 active:bg-red-600",
-    orange: "bg-orange-500 hover:bg-orange-400 active:bg-orange-600",
+    green:  "bg-volt text-[#0e0e0f] active:scale-95",
+    red:    "bg-solar text-[#0e0e0f] active:scale-95",
+    orange: "bg-orange-500 text-white active:scale-95",
   }[color];
   return (
     <button
@@ -231,13 +231,13 @@ function CircleButton({
       disabled={disabled}
       className={[
         "mx-auto flex h-[220px] w-[220px] items-center justify-center rounded-full",
-        "border border-black/10 px-4 text-center text-white shadow-lg",
-        "transition-transform active:translate-y-px",
+        "px-4 text-center shadow-lg font-display",
+        "transition-transform",
         colors,
         disabled ? "opacity-50 cursor-not-allowed" : "",
       ].join(" ")}
     >
-      <div className="text-center text-xl font-extrabold leading-tight">{message}</div>
+      <div className="text-center text-xl font-extrabold leading-tight tracking-wide">{message}</div>
     </button>
   );
 }
@@ -893,7 +893,7 @@ export default function ActiveWorkoutPage() {
 
   const renderHeader = (exercise: Exercise, logs: ExerciseLog[]) => (
     <div className="space-y-1">
-      <h2 className="truncate text-2xl font-bold text-zinc-100">{exercise.name}</h2>
+      <h2 className="truncate font-display text-2xl font-bold uppercase tracking-wide text-foreground">{exercise.name}</h2>
       {logs.length > 0 && <DotsIndicator count={logs.length} />}
     </div>
   );
@@ -1451,7 +1451,7 @@ export default function ActiveWorkoutPage() {
 
         {/* Active exercise */}
         {activeExercise && activeState ? (
-          <div className="rounded-xl border border-zinc-800 bg-card/30 p-4">
+          <div className="rounded-xl bg-surface-low p-4">
             {isCardio(activeExercise.exercise) ? renderCardio() : renderStrength()}
           </div>
         ) : (
