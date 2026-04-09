@@ -219,34 +219,37 @@ export function DashboardContent({ userName, userRole }: DashboardContentProps) 
 
   return (
     <div className="mx-auto w-full max-w-[375px] space-y-6 px-1 sm:max-w-none sm:px-0">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
-            Welcome, {userName}
-          </h1>
-          <Badge variant="secondary" className="mt-1 capitalize">
-            {userRole}
-          </Badge>
-        </div>
-        {userRole === "admin" && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-zinc-400">View as</span>
-            <Select
-              value={viewAs}
-              onValueChange={(v) => setViewAs(v as Role)}
-            >
-              <SelectTrigger className="w-[140px] border-zinc-700 bg-zinc-900">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="athlete">Athlete</SelectItem>
-                <SelectItem value="trainer">Trainer</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
-              </SelectContent>
-            </Select>
+      {/* Header — shown for trainer/admin only; athlete greeting lives inside AthleteDashboardView */}
+      {!showAthleteDashboard && (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+              Welcome, {userName}
+            </h1>
+            <Badge variant="secondary" className="mt-1 capitalize">
+              {userRole}
+            </Badge>
           </div>
-        )}
-      </div>
+          {userRole === "admin" && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-zinc-400">View as</span>
+              <Select
+                value={viewAs}
+                onValueChange={(v) => setViewAs(v as Role)}
+              >
+                <SelectTrigger className="w-[140px] border-zinc-700 bg-zinc-900">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="athlete">Athlete</SelectItem>
+                  <SelectItem value="trainer">Trainer</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+      )}
 
       {showAdminPanel && (
         <Card className="border-zinc-800 bg-zinc-950/50">
@@ -268,6 +271,7 @@ export function DashboardContent({ userName, userRole }: DashboardContentProps) 
           ) : athleteData ? (
             <AthleteDashboardView
               data={athleteData}
+              userName={userName}
               onStartPlan={startPlan}
             />
           ) : (
@@ -317,9 +321,11 @@ function TrainerSkeleton() {
 
 function AthleteDashboardView({
   data,
+  userName,
   onStartPlan,
 }: {
   data: AthletePayload;
+  userName: string;
   onStartPlan: (planId: string) => void;
 }) {
   const router = useRouter();
@@ -342,169 +348,122 @@ function AthleteDashboardView({
     }
   };
 
+  // Day labels for the 7-day ring row (index 0 = 6 days ago, index 6 = today)
+  const dayLabels = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return d.toLocaleDateString("en-US", { weekday: "narrow" });
+  });
+
   return (
-    <div className="space-y-6 pb-10">
-      <Card className="border-zinc-800 bg-zinc-950/50">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-lg text-zinc-100">
-            Level {data.level} — {data.levelName}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-3xl font-bold text-sky-400">
-            {data.totalPoints.toLocaleString()}{" "}
-            <span className="text-base font-normal text-zinc-500">pts</span>
+    <div className="space-y-5 pb-10">
+
+      {/* Hero: greeting + streak */}
+      <div className="pt-1">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+          Hey, {userName.split(" ")[0]} 🐺
+        </h1>
+        {data.currentStreak > 0 ? (
+          <p className="mt-1 text-base font-semibold text-amber-400">
+            🔥 {data.currentStreak}-day streak
           </p>
-          {data.nextLevelMin != null && (
-            <>
-              <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-                <div
-                  className="h-full rounded-full bg-sky-500 transition-all"
-                  style={{ width: `${data.progressPct}%` }}
-                />
-              </div>
-              <p className="text-sm text-zinc-400">
-                {data.pointsToNext.toLocaleString()} pts to next level
-              </p>
-            </>
-          )}
-        </CardContent>
-      </Card>
+        ) : (
+          <p className="mt-1 text-sm text-zinc-500">Start a streak today</p>
+        )}
+      </div>
 
-      <Card className="border-zinc-800 bg-zinc-950/50">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base text-zinc-100">Streak</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex justify-between text-sm text-zinc-300">
-            <span>Current: {data.currentStreak} days</span>
-            <span className="text-zinc-500">Best: {data.longestStreak}</span>
+      {/* 7-day rings */}
+      <div className="flex justify-between gap-1">
+        {data.last7Days.map((filled, i) => (
+          <div key={i} className="flex flex-1 flex-col items-center gap-1">
+            <div
+              className={`h-8 w-8 rounded-full border-2 transition-colors ${
+                filled
+                  ? "border-green-500 bg-green-500/30"
+                  : "border-zinc-700 bg-transparent"
+              }`}
+            />
+            <span className="text-[10px] text-zinc-500">{dayLabels[i]}</span>
           </div>
-          <div className="mt-3 flex justify-between gap-1.5">
-            {data.last7Days.map((filled, i) => (
-              <div
-                key={i}
-                className={`h-9 min-w-0 flex-1 rounded-full ${
-                  filled ? "bg-sky-600" : "bg-zinc-800"
-                }`}
-                title={filled ? "Workout logged" : "Rest day"}
-              />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="space-y-2">
-        <Button
-          type="button"
-          onClick={startAdHoc}
-          disabled={starting}
-          className="min-h-[44px] w-full bg-white text-black hover:bg-zinc-100"
-        >
-          ⚡ Start Ad Hoc Workout
-        </Button>
-        <Button
-          type="button"
-          onClick={() => router.push("/log?openPlan=1")}
-          disabled={starting}
-          className="min-h-[44px] w-full bg-white text-black hover:bg-zinc-100"
-        >
-          📋 Start From Plan
-        </Button>
+        ))}
       </div>
 
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-semibold text-zinc-100">Recent badges</h2>
-          <Link
-            href="/profile"
-            className="text-sm text-sky-400 hover:underline"
-          >
-            View all
-          </Link>
-        </div>
-        <div className="-mx-1 flex gap-3 overflow-x-auto pb-2">
-          {data.recentBadges.length === 0 ? (
-            <p className="text-sm text-zinc-500">No badges yet</p>
-          ) : (
-            data.recentBadges.map((b) => (
-              <div
-                key={`${b.type}-${b.title}`}
-                className="min-w-[104px] shrink-0 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-center"
-              >
-                <div className="text-2xl" aria-hidden>
-                  {BADGE_EMOJI[b.type] ?? "⭐"}
-                </div>
-                <p className="mt-1 text-xs font-medium leading-tight text-zinc-200">
-                  {b.title}
-                </p>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
+      {/* Start Workout — primary CTA */}
+      <button
+        type="button"
+        onClick={startAdHoc}
+        disabled={starting}
+        className="flex min-h-[72px] w-full items-center justify-center rounded-2xl bg-green-600 text-xl font-black uppercase tracking-widest text-white shadow-lg transition-colors active:bg-green-700 disabled:opacity-60"
+      >
+        {starting ? "Starting…" : "Start Workout"}
+      </button>
 
-      <div className="grid grid-cols-3 gap-2">
-        <Card className="border-zinc-800 bg-zinc-950/50">
-          <CardContent className="p-3 text-center">
-            <p className="text-xl font-bold text-zinc-100">
-              {data.weekWorkouts}
-            </p>
-            <p className="text-[11px] text-zinc-500">This week</p>
-          </CardContent>
-        </Card>
-        <Card className="border-zinc-800 bg-zinc-950/50">
-          <CardContent className="p-3 text-center">
-            <p className="text-lg font-bold text-zinc-100">
-              {data.weekVolume > 999
-                ? `${(data.weekVolume / 1000).toFixed(1)}k`
-                : data.weekVolume.toLocaleString()}
-            </p>
-            <p className="text-[11px] text-zinc-500">Vol (lbs)</p>
-          </CardContent>
-        </Card>
-        <Card className="border-zinc-800 bg-zinc-950/50">
-          <CardContent className="p-3 text-center">
-            <p className="text-xl font-bold text-zinc-100">
-              {data.totalWorkouts}
-            </p>
-            <p className="text-[11px] text-zinc-500">All time</p>
-          </CardContent>
-        </Card>
-      </div>
-
+      {/* From Plan — secondary */}
       {data.nextPlan && (
-        <Card className="border-sky-900/40 bg-sky-950/20">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-zinc-100">
-              Next workout
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <p className="font-semibold text-zinc-100">{data.nextPlan.name}</p>
-            <p className="text-sm text-zinc-400">
-              {data.nextPlan.scheduled_date
-                ? new Date(data.nextPlan.scheduled_date).toLocaleDateString(
-                    "en-US",
-                    { weekday: "short", month: "short", day: "numeric" }
-                  )
-                : "Anytime"}{" "}
-              · {data.nextPlan.exercise_count} exercises
-            </p>
-            <Button
-              className="min-h-[44px] w-full bg-sky-600 hover:bg-sky-500"
-              onClick={() => onStartPlan(data.nextPlan!.id)}
-            >
-              Start
-            </Button>
-          </CardContent>
-        </Card>
+        <button
+          type="button"
+          onClick={() => onStartPlan(data.nextPlan!.id)}
+          disabled={starting}
+          className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm font-medium text-zinc-200 active:bg-zinc-800 disabled:opacity-60"
+        >
+          <span>
+            <span className="text-zinc-500">From plan: </span>
+            {data.nextPlan.name}
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" />
+        </button>
       )}
 
+      {/* Level + progress */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 px-4 py-3">
+        <div className="mb-2 flex items-baseline justify-between">
+          <span className="text-sm font-semibold text-zinc-200">
+            Level {data.level} — {data.levelName}
+          </span>
+          <span className="text-xs text-zinc-500">
+            {data.totalPoints.toLocaleString()} pts
+          </span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+          <div
+            className="h-full rounded-full bg-sky-500 transition-all"
+            style={{ width: `${data.progressPct}%` }}
+          />
+        </div>
+        {data.nextLevelMin != null && (
+          <p className="mt-1.5 text-right text-[11px] text-zinc-600">
+            {data.pointsToNext.toLocaleString()} to next level
+          </p>
+        )}
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-center">
+          <p className="text-xl font-bold text-zinc-100">{data.weekWorkouts}</p>
+          <p className="text-[11px] text-zinc-500">This week</p>
+        </div>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-center">
+          <p className="text-lg font-bold text-zinc-100">
+            {data.weekVolume > 999
+              ? `${(data.weekVolume / 1000).toFixed(1)}k`
+              : data.weekVolume.toLocaleString()}
+          </p>
+          <p className="text-[11px] text-zinc-500">Vol (lbs)</p>
+        </div>
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-center">
+          <p className="text-xl font-bold text-zinc-100">{data.totalWorkouts}</p>
+          <p className="text-[11px] text-zinc-500">All time</p>
+        </div>
+      </div>
+
+      {/* Recent workouts */}
       <div>
-        <h2 className="mb-3 font-semibold text-zinc-100">Recent workouts</h2>
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+          Recent workouts
+        </h2>
         {data.recentWorkouts.length === 0 ? (
-          <p className="text-sm text-zinc-500">None yet</p>
+          <p className="text-sm text-zinc-600">None yet — go start one</p>
         ) : (
           <ul className="m-0 space-y-2 p-0">
             {data.recentWorkouts.map((w) => (
@@ -517,6 +476,35 @@ function AthleteDashboardView({
           </ul>
         )}
       </div>
+
+      {/* Badges — below the fold */}
+      {data.recentBadges.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+              Badges
+            </h2>
+            <Link href="/profile" className="text-xs text-sky-500 hover:underline">
+              View all
+            </Link>
+          </div>
+          <div className="-mx-1 flex gap-3 overflow-x-auto pb-2">
+            {data.recentBadges.map((b) => (
+              <div
+                key={`${b.type}-${b.title}`}
+                className="min-w-[96px] shrink-0 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-center"
+              >
+                <div className="text-2xl" aria-hidden>
+                  {BADGE_EMOJI[b.type] ?? "⭐"}
+                </div>
+                <p className="mt-1 text-xs font-medium leading-tight text-zinc-200">
+                  {b.title}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
