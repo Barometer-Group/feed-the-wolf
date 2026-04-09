@@ -361,11 +361,11 @@ function AthleteDashboardView({
       {/* Hero: greeting + streak */}
       <div className="pt-1">
         <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
-          Hey, {userName.split(" ")[0]} 🐺
+          Hey, {userName.split(" ")[0]}
         </h1>
         {data.currentStreak > 0 ? (
           <p className="mt-1 text-base font-semibold text-amber-400">
-            🔥 {data.currentStreak}-day streak
+            {data.currentStreak}-day streak
           </p>
         ) : (
           <p className="mt-1 text-sm text-zinc-500">Start a streak today</p>

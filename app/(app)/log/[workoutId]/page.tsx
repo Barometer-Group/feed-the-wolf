@@ -401,6 +401,14 @@ export default function ActiveWorkoutPage() {
     refetch,
   } = useWorkout(workoutId, athleteId ?? "");
 
+  // Lock body scroll for the entire workout screen — prevents accidental page
+  // scroll when dragging drum inputs or swiping between stages.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // Master tick — drives all timers
   const [now, setNow] = useState(Date.now());
   useEffect(() => {

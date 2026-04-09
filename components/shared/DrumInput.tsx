@@ -86,7 +86,7 @@ export function DrumInput({
     "select-none cursor-pointer text-sm";
 
   return (
-    <div className="flex flex-col items-center gap-0">
+    <div className="flex touch-none flex-col items-center gap-0">
       {/* label */}
       <span className="mb-2 text-xs font-medium uppercase tracking-widest text-zinc-400">
         {label}
