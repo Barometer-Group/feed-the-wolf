@@ -319,6 +319,13 @@ function TrainerSkeleton() {
   );
 }
 
+type RecentPR = {
+  exerciseName: string;
+  bestWeight: number;
+  bestReps: number;
+  achievedAt: string;
+};
+
 function AthleteDashboardView({
   data,
   userName,
@@ -330,6 +337,16 @@ function AthleteDashboardView({
 }) {
   const router = useRouter();
   const [starting, setStarting] = useState(false);
+  const [recentPRs, setRecentPRs] = useState<RecentPR[]>([]);
+
+  useEffect(() => {
+    fetch("/api/progress/prs")
+      .then((r) => r.json())
+      .then((j: { prs?: RecentPR[] }) => {
+        setRecentPRs((j.prs ?? []).slice(0, 3));
+      })
+      .catch(() => {/* non-fatal */});
+  }, []);
 
   const startAdHoc = async () => {
     setStarting(true);
@@ -365,30 +382,37 @@ function AthleteDashboardView({
         </h1>
         {data.currentStreak > 0 ? (
           <p className="mt-1 text-base font-semibold text-volt">
-            {data.currentStreak}-day streak
+            {data.currentStreak}-day streak 🔥
           </p>
         ) : (
           <p className="mt-1 text-sm text-muted-foreground">Start a streak today</p>
         )}
       </div>
 
-      {/* 7-day rings */}
-      <div className="flex justify-between gap-1">
-        {data.last7Days.map((filled, i) => (
-          <div key={i} className="flex flex-1 flex-col items-center gap-1">
-            <div
-              className={`h-8 w-8 rounded-full border-2 transition-colors ${
-                filled
-                  ? "border-volt bg-volt/20"
-                  : "border-surface-high bg-transparent"
-              }`}
-            />
-            <span className="text-[10px] text-muted-foreground">{dayLabels[i]}</span>
-          </div>
-        ))}
+      {/* Level + progress — above Start Workout so user sees progress before acting */}
+      <div className="rounded-xl bg-surface-low px-4 py-3">
+        <div className="mb-2 flex items-baseline justify-between">
+          <span className="text-sm font-semibold text-foreground">
+            Level {data.level} — {data.levelName}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {data.totalPoints.toLocaleString()} pts
+          </span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-surface-high">
+          <div
+            className="h-full rounded-full bg-electric transition-all"
+            style={{ width: `${data.progressPct}%` }}
+          />
+        </div>
+        {data.nextLevelMin != null && (
+          <p className="mt-1.5 text-right text-[11px] text-muted-foreground">
+            {data.pointsToNext.toLocaleString()} to next level
+          </p>
+        )}
       </div>
 
-      {/* Start Workout — primary CTA */}
+      {/* Start Workout — primary CTA (biggest thing on screen) */}
       <button
         type="button"
         onClick={startAdHoc}
@@ -414,47 +438,20 @@ function AthleteDashboardView({
         </button>
       )}
 
-      {/* Level + progress */}
-      <div className="rounded-xl bg-surface-low px-4 py-3">
-        <div className="mb-2 flex items-baseline justify-between">
-          <span className="text-sm font-semibold text-foreground">
-            Level {data.level} — {data.levelName}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {data.totalPoints.toLocaleString()} pts
-          </span>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-surface-high">
-          <div
-            className="h-full rounded-full bg-electric transition-all"
-            style={{ width: `${data.progressPct}%` }}
-          />
-        </div>
-        {data.nextLevelMin != null && (
-          <p className="mt-1.5 text-right text-[11px] text-muted-foreground">
-            {data.pointsToNext.toLocaleString()} to next level
-          </p>
-        )}
-      </div>
-
-      {/* Stats row */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-xl bg-surface-low p-3 text-center">
-          <p className="text-xl font-bold text-foreground">{data.weekWorkouts}</p>
-          <p className="text-[11px] text-muted-foreground">This week</p>
-        </div>
-        <div className="rounded-xl bg-surface-low p-3 text-center">
-          <p className="text-lg font-bold text-foreground">
-            {data.weekVolume > 999
-              ? `${(data.weekVolume / 1000).toFixed(1)}k`
-              : data.weekVolume.toLocaleString()}
-          </p>
-          <p className="text-[11px] text-muted-foreground">Vol (lbs)</p>
-        </div>
-        <div className="rounded-xl bg-surface-low p-3 text-center">
-          <p className="text-xl font-bold text-foreground">{data.totalWorkouts}</p>
-          <p className="text-[11px] text-muted-foreground">All time</p>
-        </div>
+      {/* 7-day rings — below the CTA */}
+      <div className="flex justify-between gap-1">
+        {data.last7Days.map((filled, i) => (
+          <div key={i} className="flex flex-1 flex-col items-center gap-1">
+            <div
+              className={`h-8 w-8 rounded-full border-2 transition-colors ${
+                filled
+                  ? "border-volt bg-volt/20"
+                  : "border-surface-high bg-transparent"
+              }`}
+            />
+            <span className="text-[10px] text-muted-foreground">{dayLabels[i]}</span>
+          </div>
+        ))}
       </div>
 
       {/* Recent workouts */}
@@ -476,6 +473,30 @@ function AthleteDashboardView({
           </ul>
         )}
       </div>
+
+      {/* Recent PRs */}
+      {recentPRs.length > 0 && (
+        <div>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Recent PRs
+          </h2>
+          <div className="space-y-2">
+            {recentPRs.map((pr) => (
+              <div
+                key={pr.exerciseName}
+                className="flex items-center justify-between rounded-xl bg-surface-low px-4 py-3"
+              >
+                <span className="truncate text-sm font-medium text-foreground">
+                  {pr.exerciseName}
+                </span>
+                <span className="ml-3 shrink-0 text-sm font-semibold text-volt">
+                  {pr.bestWeight > 0 ? `${pr.bestWeight} lbs` : `${pr.bestReps} reps`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Badges — below the fold */}
       {data.recentBadges.length > 0 && (
