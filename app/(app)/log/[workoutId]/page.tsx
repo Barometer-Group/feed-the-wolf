@@ -506,10 +506,8 @@ export default function ActiveWorkoutPage() {
           ? `${cyclesCompleted} of ${state.hiitCycles} cycles — ${state.timedNotes}`
           : `${cyclesCompleted} of ${state.hiitCycles} cycles`;
         void addSet(activeExerciseId, { ...emptySetValues(), durationSeconds: elapsed, notes }, "manual");
-        setDoneExerciseIds((prev) =>
-          prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
-        );
-        setActiveExerciseId(null);
+        // Don't clear activeExerciseId here — celebrate screen needs to render first.
+        // handleNextExercise (shown during celebrate) moves the exercise to doneExerciseIds.
       }
     }
 
@@ -546,10 +544,8 @@ export default function ActiveWorkoutPage() {
           { ...emptySetValues(), durationSeconds: totalSecs, notes: state.timedNotes || null },
           "manual"
         );
-        setDoneExerciseIds((prev) =>
-          prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
-        );
-        setActiveExerciseId(null);
+        // Don't clear activeExerciseId here — celebrate screen needs to render first.
+        // handleNextExercise (shown during celebrate) moves the exercise to doneExerciseIds.
       }
     }
 
@@ -721,10 +717,8 @@ export default function ActiveWorkoutPage() {
     // Update UI immediately — no waiting for DB
     triggerConfetti("pr");
     updateState(activeExerciseId, (s) => ({ ...s, stage: "celebrate" }));
-    setDoneExerciseIds((prev) =>
-      prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
-    );
-    setActiveExerciseId(null);
+    // Don't clear activeExerciseId here — celebrate screen needs to render first.
+    // handleNextExercise (shown during celebrate) moves the exercise to doneExerciseIds.
     // Fire DB write in background
     void addSet(
       activeExerciseId,
