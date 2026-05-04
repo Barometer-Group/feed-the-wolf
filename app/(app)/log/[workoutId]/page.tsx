@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/types";
 
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,6 +23,7 @@ import { showBadgeToast } from "@/components/gamification/BadgeToast";
 import { showPRToast } from "@/components/gamification/PRToast";
 import { triggerConfetti } from "@/components/gamification/Confetti";
 import { DrumInput } from "@/components/shared/DrumInput";
+import { ExerciseInfoSheet } from "@/components/workout/ExerciseInfoSheet";
 
 type Exercise = Database["public"]["Tables"]["exercises"]["Row"];
 type ExerciseLog = Database["public"]["Tables"]["exercise_logs"]["Row"];
@@ -387,6 +388,7 @@ export default function ActiveWorkoutPage() {
   const [expandedDoneId, setExpandedDoneId] = useState<string | null>(null);
   const [restEditMode, setRestEditMode] = useState<"last" | "next" | null>(null);
   const [endingSet, setEndingSet] = useState(false);
+  const [infoExercise, setInfoExercise] = useState<Exercise | null>(null);
 
   const prToastKeysRef = useRef<Set<string>>(new Set());
 
@@ -439,7 +441,7 @@ export default function ActiveWorkoutPage() {
   useEffect(() => {
     supabase
       .from("exercises")
-      .select("id, name, category")
+      .select("id, name, category, description, demo_video_url")
       .then(({ data }) => setExerciseLibrary((data ?? []) as Exercise[]));
   }, [supabase]);
 
@@ -909,7 +911,19 @@ export default function ActiveWorkoutPage() {
 
   const renderHeader = (exercise: Exercise, logs: ExerciseLog[]) => (
     <div className="space-y-1">
-      <h2 className="truncate font-display text-2xl font-bold uppercase tracking-wide text-foreground">{exercise.name}</h2>
+      <div className="flex items-start justify-between gap-2">
+        <h2 className="truncate font-display text-2xl font-bold uppercase tracking-wide text-foreground">
+          {exercise.name}
+        </h2>
+        <button
+          type="button"
+          onClick={() => setInfoExercise(exercise)}
+          className="shrink-0 rounded-full border border-zinc-300 p-1.5 text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-700"
+          title="How to do this exercise"
+        >
+          <Info className="h-4 w-4" />
+        </button>
+      </div>
       {logs.length > 0 && <DotsIndicator count={logs.length} />}
     </div>
   );
@@ -1542,6 +1556,11 @@ export default function ActiveWorkoutPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ExerciseInfoSheet
+        exercise={infoExercise}
+        onClose={() => setInfoExercise(null)}
+      />
 
       <Dialog
         open={showAbandonConfirm}
