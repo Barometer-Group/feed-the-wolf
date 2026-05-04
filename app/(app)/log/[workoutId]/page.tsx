@@ -568,7 +568,29 @@ export default function ActiveWorkoutPage() {
         });
       }
     }
-  }, [now, activeExerciseId, exerciseStates]);
+
+    // Strength rest auto-advance — moved here from render to avoid
+    // repeated setState calls every 500ms tick while restLeft === 0.
+    if (state.stage === "rest" && state.restStartedAt && restEditMode === null) {
+      const restElapsed = Math.floor((now - state.restStartedAt) / 1000);
+      if (restElapsed >= REST_DURATION_SECS) {
+        setExerciseStates((prev) => {
+          const s = prev[activeExerciseId];
+          if (!s || s.stage !== "rest") return prev;
+          return {
+            ...prev,
+            [activeExerciseId]: {
+              ...s,
+              stage: "setup",
+              restStartedAt: null,
+              beginMessage: pick(BEGIN_MESSAGES),
+            },
+          };
+        });
+        setRestEditMode(null);
+      }
+    }
+  }, [now, activeExerciseId, exerciseStates, restEditMode]);
 
   const updateState = useCallback(
     (id: string, updater: (s: ExerciseState) => ExerciseState) => {
@@ -960,11 +982,6 @@ export default function ActiveWorkoutPage() {
         ? Math.floor((now - restStartedAt) / 1000)
         : REST_DURATION_SECS;
       const restLeft = Math.max(0, REST_DURATION_SECS - restElapsed);
-
-      if (restLeft === 0 && restEditMode === null) {
-        // Auto-advance when rest expires (only if not in an edit form)
-        setTimeout(() => handleRestDone(), 0);
-      }
 
       const rm = Math.floor(restLeft / 60);
       const rs = restLeft % 60;
