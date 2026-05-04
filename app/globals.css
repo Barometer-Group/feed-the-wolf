@@ -4,26 +4,26 @@
 
 @layer base {
   :root {
-    /* Light mode (unused — app always runs dark) */
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 73 100% 48%;
-    --primary-foreground: 0 0% 5%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 186 100% 78%;
-    --accent-foreground: 0 0% 5%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 73 100% 48%;
+    /* Light theme */
+    --background:          240 8% 97%;    /* #f6f6f8 — warm off-white page */
+    --foreground:          240 10% 10%;   /* #191920 — near-black text */
+    --card:                0 0% 100%;     /* #ffffff — pure white cards */
+    --card-foreground:     240 10% 10%;
+    --popover:             0 0% 100%;
+    --popover-foreground:  240 10% 10%;
+    --primary:             73 100% 40%;   /* #99bf00 — volt lime, darkened slightly for contrast on white */
+    --primary-foreground:  0 0% 5%;       /* near-black on lime */
+    --secondary:           240 5% 92%;    /* light gray — secondary surfaces */
+    --secondary-foreground: 240 5% 20%;
+    --muted:               240 5% 93%;    /* light gray for input backgrounds */
+    --muted-foreground:    240 4% 46%;    /* medium gray for secondary labels */
+    --accent:              186 60% 40%;   /* teal accent */
+    --accent-foreground:   0 0% 100%;
+    --destructive:         15 90% 55%;    /* solar crush on light bg */
+    --destructive-foreground: 0 0% 100%;
+    --border:              240 6% 88%;    /* subtle borders */
+    --input:               240 5% 92%;
+    --ring:                73 100% 40%;
     --radius: 0.5rem;
   }
 

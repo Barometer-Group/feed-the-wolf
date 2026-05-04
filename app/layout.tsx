@@ -30,7 +30,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#161618",
+  themeColor: "#f6f6f8",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -43,7 +43,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`dark ${spaceGrotesk.variable} ${manrope.variable}`}>
+    <html lang="en" className={`${spaceGrotesk.variable} ${manrope.variable}`}>
       <body className="min-h-screen bg-background font-body antialiased">
         {children}
         <Toaster richColors position="top-center" />

@@ -291,16 +291,16 @@ function EditableSetRow({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="flex w-full items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-left active:bg-zinc-800"
+        className="flex w-full items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-left active:bg-zinc-100"
       >
         <span className="text-sm text-zinc-500">Set {log.set_number}</span>
-        <span className="text-sm text-zinc-200">{formatSetLine(log)}</span>
+        <span className="text-sm text-zinc-800">{formatSetLine(log)}</span>
       </button>
     );
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-zinc-700 bg-zinc-900/60 p-3">
+    <div className="space-y-3 rounded-lg border border-zinc-300 bg-white p-3">
       <div className="text-xs text-zinc-400">Edit set {log.set_number}</div>
       <div className="grid grid-cols-2 gap-3">
         <DrumInput value={reps} onChange={setReps} label="Reps" min={0} max={200} step={1} />
@@ -317,7 +317,7 @@ function EditableSetRow({
       <div className="flex gap-2">
         <Button
           variant="outline"
-          className="min-h-[44px] flex-1 border-zinc-700"
+          className="min-h-[44px] flex-1 border-zinc-300"
           onClick={() => setEditing(false)}
         >
           Cancel
@@ -991,8 +991,8 @@ export default function ActiveWorkoutPage() {
         return (
           <div className="space-y-4">
             {renderHeader(exercise, logs)}
-            <div className="space-y-3 rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
-              <div className="text-sm font-medium text-zinc-300">
+            <div className="space-y-3 rounded-xl border border-zinc-300 bg-white p-4">
+              <div className="text-sm font-medium text-zinc-700">
                 What did you actually do?
               </div>
               <SetupDrums
@@ -1004,7 +1004,7 @@ export default function ActiveWorkoutPage() {
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  className="min-h-[44px] flex-1 border-zinc-700"
+                  className="min-h-[44px] flex-1 border-zinc-300"
                   onClick={() => setRestEditMode(null)}
                 >
                   Cancel
@@ -1027,8 +1027,8 @@ export default function ActiveWorkoutPage() {
         return (
           <div className="space-y-4">
             {renderHeader(exercise, logs)}
-            <div className="space-y-3 rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
-              <div className="text-sm font-medium text-zinc-300">
+            <div className="space-y-3 rounded-xl border border-zinc-300 bg-white p-4">
+              <div className="text-sm font-medium text-zinc-700">
                 Set {logs.length + 1} — adjust before you start
               </div>
               <SetupDrums
@@ -1040,7 +1040,7 @@ export default function ActiveWorkoutPage() {
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  className="min-h-[44px] flex-1 border-zinc-700"
+                  className="min-h-[44px] flex-1 border-zinc-300"
                   onClick={() => setRestEditMode(null)}
                 >
                   Cancel
@@ -1063,18 +1063,18 @@ export default function ActiveWorkoutPage() {
         <div className="space-y-4">
           {renderHeader(exercise, logs)}
           {activeState.restMessage && (
-            <div className="text-center text-base font-semibold text-zinc-200">
+            <div className="text-center text-base font-semibold text-zinc-800">
               {activeState.restMessage}
             </div>
           )}
           <div className="flex flex-col items-center gap-1">
-            <div className="text-6xl font-bold tabular-nums text-zinc-100">
+            <div className="text-6xl font-bold tabular-nums text-zinc-900">
               {rm}:{rs.toString().padStart(2, "0")}
             </div>
             <div className="text-xs uppercase tracking-widest text-zinc-500">rest</div>
           </div>
           <Button
-            className="w-full min-h-[44px] bg-zinc-800 text-zinc-200 hover:bg-zinc-700"
+            className="w-full min-h-[44px] bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
             onClick={handleRestDone}
           >
             Skip Rest
@@ -1082,14 +1082,14 @@ export default function ActiveWorkoutPage() {
           <div className="grid grid-cols-2 gap-2">
             <Button
               variant="outline"
-              className="min-h-[44px] border-zinc-700"
+              className="min-h-[44px] border-zinc-300"
               onClick={() => setRestEditMode("last")}
             >
               Edit Last Set
             </Button>
             <Button
               variant="outline"
-              className="min-h-[44px] border-zinc-700"
+              className="min-h-[44px] border-zinc-300"
               onClick={() => setRestEditMode("next")}
             >
               Edit Next Set
@@ -1120,7 +1120,7 @@ export default function ActiveWorkoutPage() {
           {renderHeader(exercise, logs)}
 
           {/* Mode toggle */}
-          <div className="flex rounded-lg border border-zinc-700 overflow-hidden">
+          <div className="flex rounded-lg border border-zinc-300 overflow-hidden">
             {(["timed", "hiit"] as CardioMode[]).map((m) => (
               <button
                 key={m}
@@ -1130,7 +1130,7 @@ export default function ActiveWorkoutPage() {
                   "flex-1 min-h-[44px] text-sm font-semibold uppercase tracking-wider transition-colors",
                   cardioMode === m
                     ? "bg-zinc-100 text-zinc-900"
-                    : "bg-transparent text-zinc-500 hover:text-zinc-300",
+                    : "bg-transparent text-zinc-500 hover:text-zinc-800",
                 ].join(" ")}
               >
                 {m === "timed" ? "Timed" : "HIIT"}
@@ -1160,7 +1160,7 @@ export default function ActiveWorkoutPage() {
                     updateState(exercise.id, (s) => ({ ...s, timedNotes: e.target.value }))
                   }
                   placeholder="e.g. Level 8, 85 rpm..."
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400"
                 />
               </div>
               <CircleButton color="green" message="LET'S RIDE 🐺" onClick={handleTimedBegin} />
@@ -1213,7 +1213,7 @@ export default function ActiveWorkoutPage() {
                     updateState(exercise.id, (s) => ({ ...s, timedNotes: e.target.value }))
                   }
                   placeholder="e.g. Level 8, 85 rpm..."
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400"
                 />
               </div>
               <CircleButton color="green" message="LET'S GO 🐺" onClick={handleHiitBegin} />
@@ -1233,7 +1233,7 @@ export default function ActiveWorkoutPage() {
         <div className="space-y-6 py-4">
           {renderHeader(exercise, logs)}
           <div className="flex flex-col items-center gap-2">
-            <div className="text-5xl font-bold tabular-nums text-zinc-100">
+            <div className="text-5xl font-bold tabular-nums text-zinc-900">
               {formatSecs(left)}
             </div>
             <div className="text-xs uppercase tracking-widest text-zinc-500">
@@ -1259,7 +1259,7 @@ export default function ActiveWorkoutPage() {
         <div className="space-y-6 py-4">
           {renderHeader(exercise, logs)}
           <div className="flex flex-col items-center gap-2">
-            <div className="text-6xl font-bold tabular-nums text-zinc-100">
+            <div className="text-6xl font-bold tabular-nums text-zinc-900">
               {formatSecs(remaining)}
             </div>
             <div className="text-xs uppercase tracking-widest text-zinc-500">
@@ -1279,7 +1279,7 @@ export default function ActiveWorkoutPage() {
         <div className="space-y-6 py-4">
           {renderHeader(exercise, logs)}
           <div className="flex flex-col items-center gap-2">
-            <div className="text-6xl font-bold tabular-nums text-zinc-100">{left}</div>
+            <div className="text-6xl font-bold tabular-nums text-zinc-900">{left}</div>
             <div className="text-xs uppercase tracking-widest text-zinc-500">
               get ready
             </div>
@@ -1289,7 +1289,7 @@ export default function ActiveWorkoutPage() {
           </div>
           <Button
             variant="outline"
-            className="w-full min-h-[44px] border-zinc-700 text-zinc-400"
+            className="w-full min-h-[44px] border-zinc-300 text-zinc-400"
             onClick={handleHiitStop}
           >
             Cancel
@@ -1361,7 +1361,7 @@ export default function ActiveWorkoutPage() {
       return (
         <div className="space-y-4 py-6 text-center">
           {renderHeader(exercise, logs)}
-          <div className="text-4xl font-extrabold text-zinc-100">
+          <div className="text-4xl font-extrabold text-zinc-900">
             {isHiit
               ? `${hiitCyclesCompleted} cycles done! 🐺`
               : "You did it! 🎉"}
@@ -1394,17 +1394,17 @@ export default function ActiveWorkoutPage() {
               <button
                 type="button"
                 className={[
-                  "flex w-full items-center justify-between rounded-full border px-4 py-3 text-zinc-100",
+                  "flex w-full items-center justify-between rounded-full border px-4 py-3 text-zinc-900",
                   incomplete
-                    ? "border-red-500/40 bg-red-900/15 active:bg-red-900/25"
-                    : "border-green-500/30 bg-green-600/15 active:bg-green-600/25",
+                    ? "border-red-400/60 bg-red-50 active:bg-red-100"
+                    : "border-green-500/50 bg-green-50 active:bg-green-100",
                 ].join(" ")}
                 onClick={() => setExpandedDoneId((prev) => (prev === id ? null : id))}
               >
                 <span className="min-w-0 truncate text-sm font-semibold">
                   {ex.exercise.name}
                   {incomplete && (
-                    <span className="ml-2 text-xs font-normal text-red-400">stopped early</span>
+                    <span className="ml-2 text-xs font-normal text-red-600">stopped early</span>
                   )}
                 </span>
                 <div className="flex shrink-0 items-center gap-2">
@@ -1415,7 +1415,7 @@ export default function ActiveWorkoutPage() {
                 </div>
               </button>
               {expanded && (
-                <div className="mt-2 space-y-2 rounded-xl border border-zinc-800 bg-card p-3">
+                <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-card p-3">
                   {ex.logs.map((log) => (
                     <EditableSetRow
                       key={log.id}
@@ -1448,13 +1448,13 @@ export default function ActiveWorkoutPage() {
       <div className="space-y-4 pb-32">
         {/* Top bar */}
         <header className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-background py-2">
-          <div className="tabular-nums font-mono text-lg text-zinc-200">
+          <div className="tabular-nums font-mono text-lg text-zinc-800">
             {workoutTimerDisplay ?? ""}
           </div>
           <Button
             variant="outline"
             onClick={() => setShowFinishConfirm(true)}
-            className="min-h-[44px] border-zinc-700"
+            className="min-h-[44px] border-zinc-300"
           >
             Finish Workout
           </Button>
@@ -1466,7 +1466,7 @@ export default function ActiveWorkoutPage() {
             {isCardio(activeExercise.exercise) ? renderCardio() : renderStrength()}
           </div>
         ) : (
-          <div className="rounded-xl border-2 border-dashed border-zinc-700 p-8 text-center">
+          <div className="rounded-xl border-2 border-dashed border-zinc-300 bg-white p-8 text-center">
             <p className="mb-6 text-zinc-400">
               {doneExerciseIds.length > 0
                 ? "Choose your next exercise or finish your workout."
@@ -1487,10 +1487,10 @@ export default function ActiveWorkoutPage() {
 
       {/* Next Exercise — fixed above tabs, hidden during active/timed/hiit phases */}
       {activeExercise && !isActiveStage && activeStage !== "celebrate" && (
-        <div className="fixed bottom-14 left-0 right-0 z-40 border-t border-zinc-800 bg-background px-4 py-2">
+        <div className="fixed bottom-14 left-0 right-0 z-40 border-t border-zinc-200 bg-background px-4 py-2">
           <Button
             variant="outline"
-            className="w-full min-h-[44px] border-zinc-700 text-zinc-300"
+            className="w-full min-h-[44px] border-zinc-300 text-zinc-700"
             onClick={handleNextExercise}
           >
             Next Exercise
@@ -1500,7 +1500,7 @@ export default function ActiveWorkoutPage() {
 
       {/* After celebrate, show Next Exercise */}
       {activeExercise && activeStage === "celebrate" && (
-        <div className="fixed bottom-14 left-0 right-0 z-40 border-t border-zinc-800 bg-background px-4 py-2">
+        <div className="fixed bottom-14 left-0 right-0 z-40 border-t border-zinc-200 bg-background px-4 py-2">
           <Button
             className="w-full min-h-[44px]"
             onClick={handleNextExercise}

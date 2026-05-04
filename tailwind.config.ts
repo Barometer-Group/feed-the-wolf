@@ -56,10 +56,10 @@ const config: Config = {
 
         /* Surface tiers (for use alongside hsl vars) */
         surface: {
-          DEFAULT: "hsl(240 5% 9%)",      /* same as --background */
-          low:     "hsl(240 4% 12%)",     /* same as --card */
-          mid:     "hsl(240 3% 16%)",     /* same as --muted */
-          high:    "hsl(240 3% 20%)",     /* one step above mid */
+          DEFAULT: "hsl(240 8% 97%)",     /* same as --background */
+          low:     "hsl(0 0% 100%)",      /* same as --card (white) */
+          mid:     "hsl(240 5% 93%)",     /* same as --muted */
+          high:    "hsl(240 5% 88%)",     /* one step above mid */
         },
       },
       fontFamily: {
