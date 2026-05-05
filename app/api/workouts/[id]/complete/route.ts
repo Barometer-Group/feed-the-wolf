@@ -192,6 +192,50 @@ export async function POST(
 
     const newBadges = await checkAndAwardAchievements(supabase, user.id);
 
+    // If the completed workout was from a plan, advance the program if it matches
+    // the athlete's current program day
+    if (w.plan_id) {
+      try {
+        const { data: enrollment } = await supabase
+          .from("program_enrollments")
+          .select("id, program_id, current_day")
+          .eq("athlete_id", user.id)
+          .maybeSingle();
+
+        if (enrollment) {
+          const { id: enrollmentId, program_id, current_day } = enrollment as {
+            id: string;
+            program_id: string;
+            current_day: number;
+          };
+
+          const { data: dayData } = await supabase
+            .from("program_days")
+            .select("plan_id")
+            .eq("program_id", program_id)
+            .eq("day_number", current_day)
+            .single();
+
+          if (dayData && (dayData as { plan_id: string | null }).plan_id === w.plan_id) {
+            const { count: totalDays } = await supabase
+              .from("program_days")
+              .select("id", { count: "exact", head: true })
+              .eq("program_id", program_id);
+
+            const max = totalDays ?? 10;
+            const nextDay = current_day >= max ? 1 : current_day + 1;
+
+            await supabase
+              .from("program_enrollments")
+              .update({ current_day: nextDay, updated_at: new Date().toISOString() })
+              .eq("id", enrollmentId);
+          }
+        }
+      } catch {
+        // Non-fatal — workout is already saved
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       prEvents,

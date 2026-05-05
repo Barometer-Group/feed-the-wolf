@@ -269,15 +269,63 @@ export async function GET(request: Request) {
       );
       recentWorkouts.push({
         id: w.id,
-        date: new Date(w.completed_at).toLocaleDateString("en-US", {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-        }),
+        date: w.started_at,   // raw ISO — WorkoutCard formats in browser local timezone
         duration: dur,
         exerciseCount: exIds.size,
         totalVolume: vol,
       });
+    }
+
+    // Program state — what day is the athlete on?
+    let programState: {
+      programId: string;
+      programName: string;
+      dayNumber: number;
+      totalDays: number;
+      label: string;
+      isRestDay: boolean;
+      planId: string | null;
+    } | null = null;
+
+    const { data: enrollment } = await supabase
+      .from("program_enrollments")
+      .select("id, program_id, current_day")
+      .eq("athlete_id", user.id)
+      .maybeSingle();
+
+    if (enrollment) {
+      const { program_id, current_day } = enrollment as {
+        id: string;
+        program_id: string;
+        current_day: number;
+      };
+      const [{ data: prog }, { count: totalDays }, { data: dayData }] =
+        await Promise.all([
+          supabase.from("programs").select("name").eq("id", program_id).single(),
+          supabase
+            .from("program_days")
+            .select("id", { count: "exact", head: true })
+            .eq("program_id", program_id),
+          supabase
+            .from("program_days")
+            .select("plan_id, label")
+            .eq("program_id", program_id)
+            .eq("day_number", current_day)
+            .single(),
+        ]);
+
+      if (prog && dayData) {
+        const day = dayData as { plan_id: string | null; label: string };
+        programState = {
+          programId: program_id,
+          programName: (prog as { name: string }).name,
+          dayNumber: current_day,
+          totalDays: totalDays ?? 10,
+          label: day.label,
+          isRestDay: day.plan_id === null,
+          planId: day.plan_id,
+        };
+      }
     }
 
     return NextResponse.json({
@@ -302,6 +350,7 @@ export async function GET(request: Request) {
       totalWorkouts: workouts.length,
       nextPlan,
       recentWorkouts,
+      programState,
     });
   } catch {
     return NextResponse.json({ error: "Failed" }, { status: 500 });

@@ -36,6 +36,16 @@ type DashboardContentProps = {
   userRole: Role;
 };
 
+type ProgramState = {
+  programId: string;
+  programName: string;
+  dayNumber: number;
+  totalDays: number;
+  label: string;
+  isRestDay: boolean;
+  planId: string | null;
+};
+
 interface AthletePayload {
   kind: "athlete";
   totalPoints: number;
@@ -65,6 +75,7 @@ interface AthletePayload {
     exerciseCount: number;
     totalVolume: number;
   }[];
+  programState: ProgramState | null;
 }
 
 interface TrainerAthleteRow {
@@ -180,6 +191,7 @@ export function DashboardContent({ userName, userRole }: DashboardContentProps) 
             totalWorkouts: j.totalWorkouts,
             nextPlan: j.nextPlan,
             recentWorkouts: j.recentWorkouts,
+            programState: j.programState ?? null,
           });
         } else {
           setAthleteData(null);
@@ -223,7 +235,7 @@ export function DashboardContent({ userName, userRole }: DashboardContentProps) 
       {!showAthleteDashboard && (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-zinc-100">
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
               Welcome, {userName}
             </h1>
             <Badge variant="secondary" className="mt-1 capitalize">
@@ -232,12 +244,12 @@ export function DashboardContent({ userName, userRole }: DashboardContentProps) 
           </div>
           {userRole === "admin" && (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-zinc-400">View as</span>
+              <span className="text-sm text-zinc-500">View as</span>
               <Select
                 value={viewAs}
                 onValueChange={(v) => setViewAs(v as Role)}
               >
-                <SelectTrigger className="w-[140px] border-zinc-700 bg-zinc-900">
+                <SelectTrigger className="w-[140px] border-zinc-300 bg-zinc-900">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -252,9 +264,9 @@ export function DashboardContent({ userName, userRole }: DashboardContentProps) 
       )}
 
       {showAdminPanel && (
-        <Card className="border-zinc-800 bg-zinc-950/50">
+        <Card className="border-zinc-200 bg-white">
           <CardHeader>
-            <CardTitle className="text-zinc-100">Admin</CardTitle>
+            <CardTitle className="text-zinc-900">Admin</CardTitle>
           </CardHeader>
           <CardContent>
             <Button asChild variant="outline" className="min-h-[44px]">
@@ -275,7 +287,7 @@ export function DashboardContent({ userName, userRole }: DashboardContentProps) 
               onStartPlan={startPlan}
             />
           ) : (
-            <p className="text-sm text-zinc-400">No dashboard data.</p>
+            <p className="text-sm text-zinc-500">No dashboard data.</p>
           )}
         </>
       )}
@@ -296,15 +308,15 @@ export function DashboardContent({ userName, userRole }: DashboardContentProps) 
 function DashboardAthleteSkeleton() {
   return (
     <div className="space-y-4">
-      <Skeleton className="h-36 w-full rounded-xl bg-zinc-800" />
-      <Skeleton className="h-28 w-full rounded-xl bg-zinc-800" />
-      <Skeleton className="h-16 w-full rounded-xl bg-zinc-800" />
+      <Skeleton className="h-36 w-full rounded-xl bg-zinc-200" />
+      <Skeleton className="h-28 w-full rounded-xl bg-zinc-200" />
+      <Skeleton className="h-16 w-full rounded-xl bg-zinc-200" />
       <div className="flex gap-2">
-        <Skeleton className="h-20 flex-1 rounded-lg bg-zinc-800" />
-        <Skeleton className="h-20 flex-1 rounded-lg bg-zinc-800" />
-        <Skeleton className="h-20 flex-1 rounded-lg bg-zinc-800" />
+        <Skeleton className="h-20 flex-1 rounded-lg bg-zinc-200" />
+        <Skeleton className="h-20 flex-1 rounded-lg bg-zinc-200" />
+        <Skeleton className="h-20 flex-1 rounded-lg bg-zinc-200" />
       </div>
-      <Skeleton className="h-32 w-full rounded-xl bg-zinc-800" />
+      <Skeleton className="h-32 w-full rounded-xl bg-zinc-200" />
     </div>
   );
 }
@@ -313,7 +325,7 @@ function TrainerSkeleton() {
   return (
     <div className="space-y-3">
       {[1, 2, 3].map((i) => (
-        <Skeleton key={i} className="h-28 w-full rounded-xl bg-zinc-800" />
+        <Skeleton key={i} className="h-28 w-full rounded-xl bg-zinc-200" />
       ))}
     </div>
   );
@@ -337,6 +349,8 @@ function AthleteDashboardView({
 }) {
   const router = useRouter();
   const [starting, setStarting] = useState(false);
+  const [advancingRest, setAdvancingRest] = useState(false);
+  const [programState, setProgramState] = useState(data.programState);
   const [recentPRs, setRecentPRs] = useState<RecentPR[]>([]);
 
   useEffect(() => {
@@ -353,15 +367,48 @@ function AthleteDashboardView({
     try {
       const res = await fetch("/api/workouts", { method: "POST" });
       const j = (await res.json()) as { id?: string; error?: string; message?: string };
-      if (!res.ok) {
-        toast.error(j.error ?? j.message ?? "Failed to start workout");
-        return;
-      }
+      if (!res.ok) { toast.error(j.error ?? j.message ?? "Failed to start workout"); return; }
       if (j.id) router.push(`/log/${j.id}`);
     } catch {
       toast.error("Failed to start workout");
     } finally {
       setStarting(false);
+    }
+  };
+
+  const startProgramWorkout = async (planId: string) => {
+    setStarting(true);
+    try {
+      const res = await fetch("/api/workouts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan_id: planId }),
+      });
+      const j = (await res.json()) as { id?: string; error?: string };
+      if (!res.ok) { toast.error(j.error ?? "Failed to start workout"); return; }
+      if (j.id) router.push(`/log/${j.id}`);
+    } catch {
+      toast.error("Failed to start workout");
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const markRestDone = async () => {
+    setAdvancingRest(true);
+    try {
+      const res = await fetch("/api/programs/advance", { method: "POST" });
+      if (!res.ok) { toast.error("Failed to advance program"); return; }
+      const next = await res.json() as { nextDay?: number };
+      // Refresh program state
+      const updated = await fetch("/api/programs/current");
+      const j = await updated.json() as { programState?: ProgramState | null };
+      setProgramState(j.programState ?? null);
+      toast.success(`Rest day done — Day ${next.nextDay ?? "?"} next`);
+    } catch {
+      toast.error("Failed");
+    } finally {
+      setAdvancingRest(false);
     }
   };
 
@@ -381,7 +428,7 @@ function AthleteDashboardView({
           Hey, {userName.split(" ")[0]}
         </h1>
         {data.currentStreak > 0 ? (
-          <p className="mt-1 text-base font-semibold text-volt">
+          <p className="mt-1 text-base font-semibold text-primary">
             {data.currentStreak}-day streak 🔥
           </p>
         ) : (
@@ -389,7 +436,7 @@ function AthleteDashboardView({
         )}
       </div>
 
-      {/* Level + progress — above Start Workout so user sees progress before acting */}
+      {/* Level + progress */}
       <div className="rounded-xl bg-surface-low px-4 py-3">
         <div className="mb-2 flex items-baseline justify-between">
           <span className="text-sm font-semibold text-foreground">
@@ -401,7 +448,7 @@ function AthleteDashboardView({
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-surface-high">
           <div
-            className="h-full rounded-full bg-electric transition-all"
+            className="h-full rounded-full bg-primary transition-all"
             style={{ width: `${data.progressPct}%` }}
           />
         </div>
@@ -412,33 +459,71 @@ function AthleteDashboardView({
         )}
       </div>
 
-      {/* Start Workout — primary CTA (biggest thing on screen) */}
-      <button
-        type="button"
-        onClick={startAdHoc}
-        disabled={starting}
-        className="flex min-h-[72px] w-full items-center justify-center rounded-2xl bg-volt font-display text-xl font-black uppercase tracking-widest text-[#0e0e0f] shadow-lg transition-transform active:scale-95 disabled:opacity-60"
-      >
-        {starting ? "Starting…" : "Start Workout"}
-      </button>
-
-      {/* From Plan — secondary */}
-      {data.nextPlan && (
+      {/* Primary CTA — program-aware */}
+      {programState ? (
+        programState.isRestDay ? (
+          /* Rest day card */
+          <div className="rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50 px-6 py-5 text-center">
+            <p className="font-display text-xl font-bold uppercase tracking-wide text-zinc-500">
+              Rest Day 🛌
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Day {programState.dayNumber} of {programState.totalDays} · {programState.programName}
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Recovery is part of the program. Come back tomorrow.
+            </p>
+            <button
+              type="button"
+              onClick={markRestDone}
+              disabled={advancingRest}
+              className="mt-4 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm font-semibold text-zinc-700 transition-colors active:bg-zinc-100 disabled:opacity-50"
+            >
+              {advancingRest ? "Saving…" : "Mark Rest Day Done →"}
+            </button>
+          </div>
+        ) : (
+          /* Program workout CTA */
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              {programState.programName} · Day {programState.dayNumber} of {programState.totalDays}
+            </p>
+            <button
+              type="button"
+              onClick={() => programState.planId && startProgramWorkout(programState.planId)}
+              disabled={starting || !programState.planId}
+              className="flex min-h-[80px] w-full flex-col items-center justify-center gap-1 rounded-2xl bg-primary px-4 font-display shadow-lg transition-transform active:scale-95 disabled:opacity-60"
+            >
+              <span className="text-xs font-bold uppercase tracking-widest text-primary-foreground/70">
+                Start Today&apos;s Workout
+              </span>
+              <span className="text-lg font-black uppercase tracking-wide text-primary-foreground">
+                {starting ? "Starting…" : programState.label}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={startAdHoc}
+              disabled={starting}
+              className="flex min-h-[44px] w-full items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-600 transition-colors active:bg-zinc-50 disabled:opacity-60"
+            >
+              Start a different workout
+            </button>
+          </div>
+        )
+      ) : (
+        /* No program — plain ad-hoc CTA */
         <button
           type="button"
-          onClick={() => onStartPlan(data.nextPlan!.id)}
+          onClick={startAdHoc}
           disabled={starting}
-          className="flex min-h-[48px] w-full items-center justify-between rounded-xl bg-surface-low px-4 text-sm font-medium text-foreground active:bg-surface-mid disabled:opacity-60"
+          className="flex min-h-[72px] w-full items-center justify-center rounded-2xl bg-primary font-display text-xl font-black uppercase tracking-widest text-primary-foreground shadow-lg transition-transform active:scale-95 disabled:opacity-60"
         >
-          <span>
-            <span className="text-muted-foreground">From plan: </span>
-            {data.nextPlan.name}
-          </span>
-          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          {starting ? "Starting…" : "Start Workout"}
         </button>
       )}
 
-      {/* 7-day rings — below the CTA */}
+      {/* 7-day rings */}
       <div className="flex justify-between gap-1">
         {data.last7Days.map((filled, i) => (
           <div key={i} className="flex flex-1 flex-col items-center gap-1">
@@ -513,7 +598,7 @@ function AthleteDashboardView({
             {data.recentBadges.map((b) => (
               <div
                 key={`${b.type}-${b.title}`}
-                className="min-w-[96px] shrink-0 rounded-lg border border-zinc-800 bg-zinc-950/50 p-3 text-center"
+                className="min-w-[96px] shrink-0 rounded-lg border border-zinc-200 bg-white p-3 text-center"
               >
                 <div className="text-2xl" aria-hidden>
                   {BADGE_EMOJI[b.type] ?? "⭐"}
@@ -537,7 +622,7 @@ function TrainerDashboardView({
 }) {
   return (
     <div className="space-y-4 pb-10">
-      <h2 className="text-lg font-semibold text-zinc-100">Your athletes</h2>
+      <h2 className="text-lg font-semibold text-zinc-900">Your athletes</h2>
       {athletes.length === 0 ? (
         <p className="text-sm text-zinc-500">No assigned athletes yet.</p>
       ) : (
@@ -547,7 +632,7 @@ function TrainerDashboardView({
             return (
               <li key={a.id} className="list-none">
                 <Card
-                  className={`border-zinc-800 bg-zinc-950/50 ${
+                  className={`border-zinc-200 bg-white ${
                     stale ? "border-amber-800/60" : ""
                   }`}
                 >
@@ -555,7 +640,7 @@ function TrainerDashboardView({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-zinc-100">
+                          <span className="font-semibold text-zinc-900">
                             {a.name}
                           </span>
                           {stale && (
@@ -568,7 +653,7 @@ function TrainerDashboardView({
                             </span>
                           )}
                         </div>
-                        <p className="mt-1 text-sm text-zinc-400">
+                        <p className="mt-1 text-sm text-zinc-500">
                           Last workout:{" "}
                           {a.lastWorkoutDate
                             ? new Date(a.lastWorkoutDate).toLocaleDateString()
@@ -587,7 +672,7 @@ function TrainerDashboardView({
                     </div>
                     <Button
                       variant="outline"
-                      className="mt-3 min-h-[44px] w-full border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+                      className="mt-3 min-h-[44px] w-full border-zinc-300 bg-zinc-900 hover:bg-zinc-200"
                       asChild
                     >
                       <Link href={`/plans/new?athlete=${a.id}`}>
