@@ -51,11 +51,7 @@ export default async function LogPage() {
     const meta = metaByWorkout[w.id];
     return {
       id: w.id,
-      date: start.toLocaleDateString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-      }),
+      date: w.started_at,   // pass raw ISO string — WorkoutCard formats in browser timezone
       duration: durationMins,
       exerciseCount: meta?.exerciseIds.size ?? 0,
       totalVolume: meta?.volume ?? 0,

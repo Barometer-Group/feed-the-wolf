@@ -5,7 +5,7 @@ import Link from "next/link";
 interface WorkoutCardProps {
   workout: {
     id: string;
-    date: string;
+    date: string;        // ISO timestamp string — formatted client-side for correct local timezone
     duration: number;
     exerciseCount: number;
     totalVolume?: number;
@@ -19,9 +19,15 @@ export function WorkoutCard({ workout, href }: WorkoutCardProps) {
       ? `${workout.totalVolume.toLocaleString()} lbs`
       : null;
 
+  const dateLabel = new Date(workout.date).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+
   const inner = (
-    <div className="flex min-h-[44px] items-center justify-between rounded-lg border border-zinc-800 bg-card px-4 py-3 transition-colors active:bg-accent">
-      <span className="font-medium">{workout.date}</span>
+    <div className="flex min-h-[44px] items-center justify-between rounded-lg border border-zinc-200 bg-card px-4 py-3 transition-colors active:bg-accent">
+      <span className="font-medium">{dateLabel}</span>
       <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground sm:gap-4">
         <span>{workout.duration} min</span>
         <span>{workout.exerciseCount} exercises</span>

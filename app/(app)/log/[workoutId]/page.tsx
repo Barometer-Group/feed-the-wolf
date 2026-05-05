@@ -389,6 +389,7 @@ export default function ActiveWorkoutPage() {
   const [restEditMode, setRestEditMode] = useState<"last" | "next" | null>(null);
   const [endingSet, setEndingSet] = useState(false);
   const [infoExercise, setInfoExercise] = useState<Exercise | null>(null);
+  const hasAutoStartedRef = useRef(false);
 
   const prToastKeysRef = useRef<Set<string>>(new Set());
 
@@ -458,6 +459,16 @@ export default function ActiveWorkoutPage() {
       return next;
     });
   }, [exercisesInWorkout, loading]);
+
+  // For plan-based workouts: auto-activate the first exercise on load
+  // so the user lands on the exercise screen, not the "Add Exercise" picker.
+  useEffect(() => {
+    if (loading || hasAutoStartedRef.current || activeExerciseId) return;
+    if (workout?.plan_id && exercisesInWorkout.length > 0) {
+      hasAutoStartedRef.current = true;
+      setActiveExerciseId(exercisesInWorkout[0].exercise.id);
+    }
+  }, [loading, workout?.plan_id, exercisesInWorkout, activeExerciseId]);
 
   // HIIT auto-advance: watch for phase timer expiry
   useEffect(() => {
@@ -803,13 +814,27 @@ export default function ActiveWorkoutPage() {
 
   const handleNextExercise = useCallback(() => {
     if (!activeExerciseId) return;
-    setDoneExerciseIds((prev) =>
-      prev.includes(activeExerciseId) ? prev : [...prev, activeExerciseId]
-    );
-    setActiveExerciseId(null);
+    const newDone = doneExerciseIds.includes(activeExerciseId)
+      ? doneExerciseIds
+      : [...doneExerciseIds, activeExerciseId];
+    setDoneExerciseIds(newDone);
     setRestEditMode(null);
+
+    // Plan workouts: walk through exercises in order, skip ones already done
+    if (workout?.plan_id) {
+      const next = exercisesInWorkout.find(
+        (e) => e.exercise.id !== activeExerciseId && !newDone.includes(e.exercise.id)
+      );
+      if (next) {
+        setActiveExerciseId(next.exercise.id);
+        return;
+      }
+    }
+
+    // Ad-hoc workout or all plan exercises done — show search / let them finish
+    setActiveExerciseId(null);
     setShowExerciseSearch(true);
-  }, [activeExerciseId]);
+  }, [activeExerciseId, doneExerciseIds, exercisesInWorkout, workout?.plan_id]);
 
   const handleAddExercise = useCallback(
     (exercise: Exercise) => {
@@ -1462,6 +1487,14 @@ export default function ActiveWorkoutPage() {
       <div className="space-y-4 pb-32">
         {/* Top bar */}
         <header className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-background py-2">
+          <button
+            type="button"
+            onClick={() => setShowAbandonConfirm(true)}
+            className="text-sm text-zinc-400 hover:text-zinc-600 transition-colors px-1 py-2 min-h-[44px]"
+            title="Cancel workout"
+          >
+            Cancel
+          </button>
           <div className="tabular-nums font-mono text-lg text-zinc-800">
             {workoutTimerDisplay ?? ""}
           </div>
@@ -1470,7 +1503,7 @@ export default function ActiveWorkoutPage() {
             onClick={() => setShowFinishConfirm(true)}
             className="min-h-[44px] border-zinc-300"
           >
-            Finish Workout
+            Finish
           </Button>
         </header>
 
