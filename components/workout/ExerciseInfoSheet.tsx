@@ -19,9 +19,10 @@ export function ExerciseInfoSheet({ exercise, onClose }: ExerciseInfoSheetProps)
   if (!exercise) return null;
 
   const raw = exercise.description ?? "";
-  const splitIdx = raw.indexOf("\n\n🏕️");
-  const mainInstructions = splitIdx >= 0 ? raw.slice(0, splitIdx).trim() : raw.trim();
-  const campingNote = splitIdx >= 0 ? raw.slice(splitIdx + 4).trim() : null;
+  const SEP = "\n\n🏕️ No equipment: ";
+  const sepIdx = raw.indexOf(SEP);
+  const mainInstructions = sepIdx >= 0 ? raw.slice(0, sepIdx).trim() : raw.trim();
+  const campingNote = sepIdx >= 0 ? raw.slice(sepIdx + SEP.length).trim() : null;
 
   const hasContent = mainInstructions || campingNote || exercise.demo_video_url;
 
